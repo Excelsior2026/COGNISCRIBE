@@ -1,0 +1,9 @@
+fastapi
+uvicorn[standard]
+fastapi-utils
+faster-whisper
+librosa
+soundfile
+noisereduce
+pydub
+requests
