@@ -1,9 +1,15 @@
-fastapi
-uvicorn[standard]
-fastapi-utils
-faster-whisper
-librosa
-soundfile
-noisereduce
-pydub
-requests
+# Web Framework
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+fastapi-utils==0.2.1
+python-multipart==0.0.6
+
+# Audio Processing
+faster-whisper==0.10.0
+librosa==0.10.1
+soundfile==0.12.1
+noisereduce==3.0.0
+pydub==0.25.1
+
+# HTTP Client
+requests==2.31.0
