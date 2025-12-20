@@ -263,7 +263,7 @@ rm -rf ~/Library/Application\ Support/cliniscribe
 ## What's Already Set Up?
 
 ✅ **Backend Services:**
-- Ollama server (port 11434)
+- Ollama server (port 11436)
 - Python API (port 8080)
 - Auto-start on launch
 - Health monitoring

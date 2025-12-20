@@ -162,7 +162,7 @@ desktop-app/src-tauri/target/release/bundle/dmg/CliniScribe_1.0.0_aarch64.dmg
 
 When CliniScribe is open, these run automatically:
 
-1. **Ollama** (localhost:11434) - LLM server
+1. **Ollama** (localhost:11436) - LLM server
 2. **Python API** (localhost:8080) - Processing pipeline
 3. **Whisper Model** - Transcription engine
 

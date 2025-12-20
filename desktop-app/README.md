@@ -242,7 +242,7 @@ cd src-tauri/resources/ollama
 ./ollama serve
 ```
 
-Then test: http://localhost:11434/api/tags
+Then test: http://localhost:11436/api/tags
 
 ## Code Signing (Production)
 

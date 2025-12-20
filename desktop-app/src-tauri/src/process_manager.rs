@@ -59,6 +59,7 @@ impl ProcessManager {
 
         let child = Command::new(&ollama_path)
             .arg("serve")
+            .env("OLLAMA_HOST", "127.0.0.1:11436")
             .spawn()
             .context("Failed to start Ollama")?;
 
@@ -92,7 +93,7 @@ impl ProcessManager {
         let child = Command::new(&api_path)
             .env("PORT", "8080")
             .env("OLLAMA_HOST", "localhost")
-            .env("OLLAMA_PORT", "11434")
+            .env("OLLAMA_PORT", "11436")
             .env("WHISPER_MODEL", &config.whisper_model)
             .env("USE_GPU", config.use_gpu.to_string())
             .env("OLLAMA_MODEL", &config.ollama_model)
@@ -113,7 +114,7 @@ impl ProcessManager {
 
         for attempt in 1..=max_attempts {
             match client
-                .get("http://localhost:11434/api/tags")
+                .get("http://localhost:11436/api/tags")
                 .timeout(Duration::from_secs(2))
                 .send()
                 .await

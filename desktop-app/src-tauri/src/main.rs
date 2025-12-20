@@ -4,17 +4,20 @@
 mod process_manager;
 mod config;
 mod model_downloader;
+mod obs;
 
 use tokio::sync::Mutex;
 use tauri::{Manager, State};
 use process_manager::{ProcessManager, ServiceStatus};
 use config::{AppConfig, load_config, save_config};
 use model_downloader::{download_whisper_model, download_ollama_model, DownloadProgress, are_bundled_models_installed};
+use obs::{OBSDetector, OBSManager, OBSInfo, OBSConnectionStatus, OBSAudioSource, OBSRecordingStatus, AudioFilterPreset};
 
 // Application state
 struct AppState {
     process_manager: Mutex<ProcessManager>,
     config: Mutex<AppConfig>,
+    obs_manager: Mutex<OBSManager>,
 }
 
 /// Check if this is the first run of the application
@@ -158,6 +161,141 @@ async fn save_recorded_audio(path: String, audio_data: Vec<u8>) -> Result<(), St
     Ok(())
 }
 
+// ==================== OBS Integration Commands ====================
+
+/// Detect OBS installation and status
+#[tauri::command]
+async fn obs_detect() -> Result<OBSInfo, String> {
+    OBSDetector::detect().map_err(|e| e.to_string())
+}
+
+/// Connect to OBS WebSocket
+#[tauri::command]
+async fn obs_connect(
+    state: State<'_, AppState>,
+    host: String,
+    port: u16,
+    password: Option<String>,
+) -> Result<OBSConnectionStatus, String> {
+    let mut obs = state.obs_manager.lock().await;
+    obs.connect(&host, port, password)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Disconnect from OBS
+#[tauri::command]
+async fn obs_disconnect(state: State<'_, AppState>) -> Result<(), String> {
+    let mut obs = state.obs_manager.lock().await;
+    obs.disconnect().await.map_err(|e| e.to_string())
+}
+
+/// Check if connected to OBS
+#[tauri::command]
+async fn obs_is_connected(state: State<'_, AppState>) -> Result<bool, String> {
+    let obs = state.obs_manager.lock().await;
+    Ok(obs.is_connected())
+}
+
+/// Get list of audio sources from OBS
+#[tauri::command]
+async fn obs_get_audio_sources(state: State<'_, AppState>) -> Result<Vec<OBSAudioSource>, String> {
+    let obs = state.obs_manager.lock().await;
+    obs.get_audio_sources().await.map_err(|e| e.to_string())
+}
+
+/// Start OBS recording
+#[tauri::command]
+async fn obs_start_recording(state: State<'_, AppState>) -> Result<(), String> {
+    let mut obs = state.obs_manager.lock().await;
+    obs.start_recording().await.map_err(|e| e.to_string())
+}
+
+/// Stop OBS recording and return file path
+#[tauri::command]
+async fn obs_stop_recording(state: State<'_, AppState>) -> Result<String, String> {
+    let mut obs = state.obs_manager.lock().await;
+    let path = obs.stop_recording().await.map_err(|e| e.to_string())?;
+    Ok(path.to_string_lossy().to_string())
+}
+
+/// Pause OBS recording
+#[tauri::command]
+async fn obs_pause_recording(state: State<'_, AppState>) -> Result<(), String> {
+    let mut obs = state.obs_manager.lock().await;
+    obs.pause_recording().await.map_err(|e| e.to_string())
+}
+
+/// Resume OBS recording
+#[tauri::command]
+async fn obs_resume_recording(state: State<'_, AppState>) -> Result<(), String> {
+    let mut obs = state.obs_manager.lock().await;
+    obs.resume_recording().await.map_err(|e| e.to_string())
+}
+
+/// Get OBS recording status
+#[tauri::command]
+async fn obs_get_recording_status(state: State<'_, AppState>) -> Result<OBSRecordingStatus, String> {
+    let obs = state.obs_manager.lock().await;
+    obs.get_recording_status().await.map_err(|e| e.to_string())
+}
+
+/// Apply filter preset to audio source
+#[tauri::command]
+async fn obs_apply_filter_preset(
+    state: State<'_, AppState>,
+    source_name: String,
+    preset_name: String,
+) -> Result<(), String> {
+    let obs = state.obs_manager.lock().await;
+
+    // Get the preset by name
+    let preset = match preset_name.as_str() {
+        "lecture_hall" => AudioFilterPreset::lecture_hall(),
+        "clinical_skills" => AudioFilterPreset::clinical_skills(),
+        "online_lecture" => AudioFilterPreset::online_lecture(),
+        _ => return Err("Unknown preset".to_string()),
+    };
+
+    obs.apply_filter_preset(&source_name, &preset)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Get available filter presets
+#[tauri::command]
+async fn obs_get_filter_presets() -> Result<Vec<AudioFilterPreset>, String> {
+    Ok(OBSManager::get_filter_presets())
+}
+
+/// Set audio source volume
+#[tauri::command]
+async fn obs_set_source_volume(
+    state: State<'_, AppState>,
+    source_name: String,
+    volume_db: f32,
+) -> Result<(), String> {
+    let obs = state.obs_manager.lock().await;
+    obs.set_source_volume(&source_name, volume_db)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Mute/unmute audio source
+#[tauri::command]
+async fn obs_set_source_muted(
+    state: State<'_, AppState>,
+    source_name: String,
+    muted: bool,
+) -> Result<(), String> {
+    let obs = state.obs_manager.lock().await;
+    obs.set_source_muted(&source_name, muted)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+// ==================== End OBS Commands ====================
+
 fn main() {
     // Load or create configuration
     let config = load_config().unwrap_or_default();
@@ -166,6 +304,7 @@ fn main() {
         .manage(AppState {
             process_manager: Mutex::new(ProcessManager::new()),
             config: Mutex::new(config),
+            obs_manager: Mutex::new(OBSManager::new()),
         })
         .invoke_handler(tauri::generate_handler![
             is_first_run,
@@ -179,6 +318,21 @@ fn main() {
             check_backend_health,
             check_bundled_models,
             save_recorded_audio,
+            // OBS commands
+            obs_detect,
+            obs_connect,
+            obs_disconnect,
+            obs_is_connected,
+            obs_get_audio_sources,
+            obs_start_recording,
+            obs_stop_recording,
+            obs_pause_recording,
+            obs_resume_recording,
+            obs_get_recording_status,
+            obs_apply_filter_preset,
+            obs_get_filter_presets,
+            obs_set_source_volume,
+            obs_set_source_muted,
         ])
         .setup(|app| {
             // Perform any initial setup here

@@ -74,7 +74,7 @@ where
     });
 
     let mut response = client
-        .post("http://localhost:11434/api/pull")
+        .post("http://localhost:11436/api/pull")
         .json(&request_body)
         .send()
         .await
@@ -134,7 +134,7 @@ pub async fn is_model_downloaded(model_name: &str) -> Result<bool> {
     let client = reqwest::Client::new();
 
     let response = client
-        .get("http://localhost:11434/api/tags")
+        .get("http://localhost:11436/api/tags")
         .send()
         .await
         .context("Failed to check Ollama models")?;

@@ -23,6 +23,11 @@ anyhow = "1.0"
 thiserror = "1.0"
 dirs = "5.0"
 
+# OBS WebSocket Integration
+obws = "0.11"
+async-trait = "0.1"
+sysinfo = "0.30"
+
 [features]
 # This feature is used for production builds or when `devPath` points to the filesystem
 # DO NOT REMOVE!!

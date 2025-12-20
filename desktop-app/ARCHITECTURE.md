@@ -113,7 +113,7 @@ Frontend → IPC → Tauri
     ↓
 Tauri → HTTP → Python API (localhost:8080)
     ↓
-Python API → Ollama (localhost:11434)
+Python API → Ollama (localhost:11436)
     ↓
 Results → Frontend
     ↓
@@ -193,7 +193,7 @@ impl BackendProcess {
         let child = Command::new(exe_path)
             .env("PORT", "8080")
             .env("OLLAMA_HOST", "localhost")
-            .env("OLLAMA_PORT", "11434")
+            .env("OLLAMA_PORT", "11436")
             .spawn()?;
 
         // Wait for health check
@@ -224,9 +224,9 @@ impl OllamaProcess {
             .arg("serve")
             .spawn()?;
 
-        wait_for_health("http://localhost:11434/api/tags")?;
+        wait_for_health("http://localhost:11436/api/tags")?;
 
-        Ok(Self { child, port: 11434 })
+        Ok(Self { child, port: 11436 })
     }
 }
 ```
@@ -250,7 +250,7 @@ async fn download_ollama_model(progress_callback: impl Fn(DownloadProgress)) -> 
     // Use Ollama API to pull model
     let client = reqwest::Client::new();
     let mut stream = client
-        .post("http://localhost:11434/api/pull")
+        .post("http://localhost:11436/api/pull")
         .json(&json!({ "name": "llama3.1:8b" }))
         .send()
         .await?
@@ -353,7 +353,7 @@ npm run tauri build
 ### Content Security Policy
 ```json
 {
-  "csp": "default-src 'self'; connect-src 'self' http://localhost:8080 http://localhost:11434"
+  "csp": "default-src 'self'; connect-src 'self' http://localhost:8080 http://localhost:11436"
 }
 ```
 

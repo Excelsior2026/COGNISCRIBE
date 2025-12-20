@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/tauri';
 import { save } from '@tauri-apps/api/dialog';
+import { readBinaryFile } from '@tauri-apps/api/fs';
 import { useAudioRecorder } from '../../hooks/useAudioRecorder';
 import LoadingSpinner from '../LoadingSpinner';
+import OBSRecordPanel from '../OBS/OBSRecordPanel';
 
 interface RecordCardProps {
   onUploadStart: () => void;
@@ -12,6 +14,9 @@ interface RecordCardProps {
 }
 
 function RecordCard({ onUploadStart, onResult, onError, isProcessing }: RecordCardProps) {
+  const [recordingMode, setRecordingMode] = useState<'basic' | 'pro'>('basic');
+  const [obsConnected, setObsConnected] = useState<boolean>(false);
+  const [obsRecordingPath, setObsRecordingPath] = useState<string>('');
   const [subject, setSubject] = useState<string>('');
   const [quizSource, setQuizSource] = useState<'subject' | 'lecture'>('lecture');
   const [ratio, setRatio] = useState<number>(0.15);
@@ -31,6 +36,25 @@ function RecordCard({ onUploadStart, onResult, onError, isProcessing }: RecordCa
     resumeRecording,
     clearRecording,
   } = useAudioRecorder(handleAudioChunk, 5000);
+
+  // Check OBS connection on mount
+  useEffect(() => {
+    checkOBSConnection();
+  }, []);
+
+  const checkOBSConnection = async () => {
+    try {
+      const connected = await invoke<boolean>('obs_is_connected');
+      setObsConnected(connected);
+    } catch (err) {
+      setObsConnected(false);
+    }
+  };
+
+  // Handle OBS recording completion
+  const handleObsRecordingComplete = (filePath: string) => {
+    setObsRecordingPath(filePath);
+  };
 
   // Handle audio chunks for live preview
   async function handleAudioChunk(chunk: Blob, timestamp: number) {
@@ -92,38 +116,58 @@ function RecordCard({ onUploadStart, onResult, onError, isProcessing }: RecordCa
 
   // Process recorded audio
   const handleProcess = async () => {
-    if (!audioBlob) {
+    // Check if we have a recording from either mode
+    if (recordingMode === 'basic' && !audioBlob) {
       onError('No recording available');
+      return;
+    }
+
+    if (recordingMode === 'pro' && !obsRecordingPath) {
+      onError('No OBS recording available');
       return;
     }
 
     onUploadStart();
 
     try {
-      // Ask user to save the recording
-      const filePath = await save({
-        defaultPath: `lecture-${new Date().toISOString().slice(0, 10)}.webm`,
-        filters: [
-          { name: 'Audio', extensions: ['webm', 'ogg'] },
-        ],
-      });
+      let fileToProcess: File;
 
-      if (!filePath) {
-        onError('Recording cancelled - file not saved');
-        return;
+      if (recordingMode === 'basic') {
+        // Basic mode: use MediaRecorder blob
+        // Ask user to save the recording
+        const filePath = await save({
+          defaultPath: `lecture-${new Date().toISOString().slice(0, 10)}.webm`,
+          filters: [
+            { name: 'Audio', extensions: ['webm', 'ogg'] },
+          ],
+        });
+
+        if (!filePath) {
+          onError('Recording cancelled - file not saved');
+          return;
+        }
+
+        // Save the recording using Tauri command
+        const arrayBuffer = await audioBlob!.arrayBuffer();
+        const uint8Array = new Uint8Array(arrayBuffer);
+        await invoke('save_recorded_audio', {
+          path: filePath,
+          audioData: Array.from(uint8Array),
+        });
+
+        fileToProcess = new File([audioBlob!], 'recording.webm', { type: 'audio/webm' });
+      } else {
+        // Pro mode: use OBS recording file
+        // Read the OBS recording file using Tauri's fs API
+        const fileData = await readBinaryFile(obsRecordingPath);
+        const blob = new Blob([fileData]);
+        const fileName = obsRecordingPath.split('/').pop() || 'recording.mkv';
+        fileToProcess = new File([blob], fileName, { type: 'audio/x-matroska' });
       }
-
-      // Save the recording using Tauri command
-      const arrayBuffer = await audioBlob.arrayBuffer();
-      const uint8Array = new Uint8Array(arrayBuffer);
-      await invoke('save_recorded_audio', {
-        path: filePath,
-        audioData: Array.from(uint8Array),
-      });
 
       // Send to processing pipeline
       const formData = new FormData();
-      formData.append('file', audioBlob, 'recording.webm');
+      formData.append('file', fileToProcess);
 
       const response = await fetch(
         'http://localhost:8080/api/pipeline?' +
@@ -147,6 +191,7 @@ function RecordCard({ onUploadStart, onResult, onError, isProcessing }: RecordCa
         onResult(result);
         clearRecording();
         setLivePreview('');
+        setObsRecordingPath('');
       } else {
         onError(result.error || 'Processing failed');
       }
@@ -166,21 +211,69 @@ function RecordCard({ onUploadStart, onResult, onError, isProcessing }: RecordCa
     <div className="bg-white rounded-2xl shadow-lg p-6">
       <h2 className="text-2xl font-bold text-gray-800 mb-2 flex items-center gap-2">
         🎙️ Record Lecture
+        {recordingMode === 'pro' && (
+          <span className="text-sm font-semibold text-purple-600 bg-purple-100 px-3 py-1 rounded-full">
+            PRO
+          </span>
+        )}
       </h2>
-      <p className="text-gray-600 mb-6">
-        Record audio directly from your microphone with live preview
+      <p className="text-gray-600 mb-4">
+        Record audio directly from your microphone{recordingMode === 'pro' ? ' with professional OBS processing' : ' with live preview'}
       </p>
 
-      {/* Recording Area */}
-      <div
-        className={`border-2 border-dashed rounded-xl p-8 mb-6 text-center transition-colors ${
-          isRecording
-            ? 'border-red-400 bg-red-50'
-            : audioBlob
-            ? 'border-green-400 bg-green-50'
-            : 'border-gray-300 bg-gray-50'
-        } ${isProcessing ? 'opacity-50 pointer-events-none' : ''}`}
-      >
+      {/* Recording Mode Toggle */}
+      <div className="mb-6">
+        <div className="grid grid-cols-2 gap-3">
+          <button
+            onClick={() => setRecordingMode('basic')}
+            disabled={isProcessing || isRecording}
+            className={`p-4 rounded-xl border-2 transition-all text-left disabled:opacity-50 disabled:cursor-not-allowed ${
+              recordingMode === 'basic'
+                ? 'border-blue-500 bg-blue-50 shadow-md'
+                : 'border-gray-300 bg-white hover:border-blue-300'
+            }`}
+          >
+            <div className="text-3xl mb-2">🎤</div>
+            <div className="font-semibold text-sm text-gray-900">Basic Recording</div>
+            <div className="text-xs text-gray-600 mt-1">Simple browser-based recording</div>
+          </button>
+          <button
+            onClick={() => setRecordingMode('pro')}
+            disabled={isProcessing || isRecording || !obsConnected}
+            className={`p-4 rounded-xl border-2 transition-all text-left disabled:opacity-50 disabled:cursor-not-allowed ${
+              recordingMode === 'pro'
+                ? 'border-purple-500 bg-purple-50 shadow-md'
+                : 'border-gray-300 bg-white hover:border-purple-300'
+            }`}
+          >
+            <div className="text-3xl mb-2">🎚️</div>
+            <div className="font-semibold text-sm text-gray-900">
+              Pro Recording {!obsConnected && '(Setup Required)'}
+            </div>
+            <div className="text-xs text-gray-600 mt-1">
+              Professional audio with OBS filters
+            </div>
+          </button>
+        </div>
+      </div>
+
+      {/* Recording Area - Conditional Based on Mode */}
+      {recordingMode === 'pro' ? (
+        <OBSRecordPanel
+          onRecordingComplete={handleObsRecordingComplete}
+          onError={onError}
+          disabled={isProcessing}
+        />
+      ) : (
+        <div
+          className={`border-2 border-dashed rounded-xl p-8 mb-6 text-center transition-colors ${
+            isRecording
+              ? 'border-red-400 bg-red-50'
+              : audioBlob
+              ? 'border-green-400 bg-green-50'
+              : 'border-gray-300 bg-gray-50'
+          } ${isProcessing ? 'opacity-50 pointer-events-none' : ''}`}
+        >
         {/* Recording Status */}
         {!isRecording && !audioBlob && (
           <div>
@@ -267,10 +360,11 @@ function RecordCard({ onUploadStart, onResult, onError, isProcessing }: RecordCa
             </button>
           )}
         </div>
-      </div>
+        </div>
+      )}
 
-      {/* Live Preview */}
-      {livePreview && isRecording && (
+      {/* Live Preview - Only for basic mode */}
+      {recordingMode === 'basic' && livePreview && isRecording && (
         <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
           <h3 className="text-sm font-semibold text-blue-800 mb-2">
             📝 Live Preview (rough transcription)
@@ -364,7 +458,12 @@ function RecordCard({ onUploadStart, onResult, onError, isProcessing }: RecordCa
       {/* Process Button */}
       <button
         onClick={handleProcess}
-        disabled={!audioBlob || isProcessing || isRecording}
+        disabled={
+          (recordingMode === 'basic' && !audioBlob) ||
+          (recordingMode === 'pro' && !obsRecordingPath) ||
+          isProcessing ||
+          isRecording
+        }
         className="w-full mt-6 bg-gradient-to-r from-blue-600 to-teal-600 text-white font-semibold py-4 rounded-xl hover:from-blue-700 hover:to-teal-700 transition-all shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
       >
         {isProcessing ? (
@@ -388,7 +487,7 @@ function RecordCard({ onUploadStart, onResult, onError, isProcessing }: RecordCa
         )}
       </button>
 
-      {audioBlob && !isProcessing && (
+      {((recordingMode === 'basic' && audioBlob) || (recordingMode === 'pro' && obsRecordingPath)) && !isProcessing && (
         <p className="text-sm text-gray-500 text-center mt-3">
           This may take a few minutes depending on recording length
         </p>

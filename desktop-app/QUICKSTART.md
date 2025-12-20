@@ -273,8 +273,8 @@ cd src-tauri/resources/python-backend
 cd src-tauri/resources/ollama
 ./ollama serve
 
-# Should start on http://localhost:11434
-# Test: curl http://localhost:11434/api/tags
+# Should start on http://localhost:11436
+# Test: curl http://localhost:11436/api/tags
 ```
 
 ### Models won't download
@@ -299,8 +299,8 @@ lsof -ti:5173 | xargs kill
 # Kill Python API (port 8080)
 lsof -ti:8080 | xargs kill
 
-# Kill Ollama (port 11434)
-lsof -ti:11434 | xargs kill
+# Kill Ollama (port 11436)
+lsof -ti:11436 | xargs kill
 ```
 
 ---

@@ -38,7 +38,7 @@
       "http": {
         "all": false,
         "request": true,
-        "scope": ["http://localhost:8080/*", "http://localhost:11434/*"]
+        "scope": ["http://localhost:8080/*", "http://localhost:11436/*"]
       },
       "dialog": {
         "all": true
@@ -58,7 +58,10 @@
         "icons/icon.icns",
         "icons/icon.ico"
       ],
-      "resources": [],
+      "resources": [
+        "resources/ollama/*",
+        "resources/python-backend/*"
+      ],
       "externalBin": [],
       "copyright": "Copyright © 2024 CliniScribe. Educational use.",
       "category": "Education",
@@ -78,7 +81,7 @@
       }
     },
     "security": {
-      "csp": "default-src 'self'; connect-src 'self' http://localhost:8080 http://localhost:11434; style-src 'self' 'unsafe-inline'; img-src 'self' data:"
+      "csp": "default-src 'self'; connect-src 'self' http://localhost:8080 http://localhost:11436; style-src 'self' 'unsafe-inline'; img-src 'self' data:"
     },
     "updater": {
       "active": false
