@@ -1,0 +1,8 @@
+fastapi
+uvicorn[standard]
+fastapi-utils
+typing_inspect
+pydantic
+python-multipart
+python-dotenv
+requests

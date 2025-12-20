@@ -7,7 +7,7 @@ AUDIO_STORAGE_DIR = os.environ.get("AUDIO_STORAGE_DIR", "audio_storage")
 TEMP_AUDIO_DIR = os.environ.get("TEMP_AUDIO_DIR", "temp_processed")
 
 # File upload limits
-MAX_FILE_SIZE_MB = int(os.environ.get("MAX_FILE_SIZE_MB", "500"))
+MAX_FILE_SIZE_MB = int(os.environ.get("MAX_FILE_SIZE_MB", "1000"))
 ALLOWED_AUDIO_FORMATS = [".wav", ".mp3", ".m4a", ".flac", ".ogg", ".aac", ".wma"]
 
 # Whisper model settings
@@ -20,7 +20,7 @@ COMPUTE_TYPE = "float16" if DEVICE == "cuda" else "int8"
 
 # Ollama settings
 OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "localhost")
-OLLAMA_PORT = os.environ.get("OLLAMA_PORT", "11434")
+OLLAMA_PORT = os.environ.get("OLLAMA_PORT", "11436")
 OLLAMA_URL = f"http://{OLLAMA_HOST}:{OLLAMA_PORT}/api/generate"
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "llama3.1:8b")
 OLLAMA_TIMEOUT = int(os.environ.get("OLLAMA_TIMEOUT", "300"))
