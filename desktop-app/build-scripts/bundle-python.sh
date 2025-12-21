@@ -50,7 +50,6 @@ a = Analysis(
         'pydub',
         'faster_whisper',
         'requests',
-        'fastapi_utils',
     ],
     hookspath=[],
     hooksconfig={},
@@ -95,8 +94,8 @@ coll = COLLECT(
 EOF
 
 # Run PyInstaller
-echo "Running PyInstaller..."
-python3 -m PyInstaller --clean cliniscribe-api.spec
+echo "Running PyInstaller with Python 3.13..."
+python3.13 -m PyInstaller --clean cliniscribe-api.spec
 
 # Check if build succeeded
 if [ ! -f "dist/cliniscribe-api/cliniscribe-api" ]; then

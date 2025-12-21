@@ -1,7 +1,7 @@
 {
-  "name": "cliniscribe-desktop",
+  "name": "cogniscribe-desktop",
   "version": "1.0.0",
-  "description": "CliniScribe Desktop - AI-powered study notes for medical students",
+  "description": "Cogniscribe Desktop - AI-powered study notes for medical students",
   "type": "module",
   "scripts": {
     "dev": "vite",
