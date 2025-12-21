@@ -1,0 +1,14 @@
+/Users/billp/Documents/GitHub/Cliniscribe/desktop-app/src-tauri/target/debug/deps/serde-fff9f5523d9ea713.d: /Users/billp/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs /Users/billp/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs /Users/billp/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs /Users/billp/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs /Users/billp/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs /Users/billp/Documents/GitHub/Cliniscribe/desktop-app/src-tauri/target/debug/build/serde-7ceb09fb5009e528/out/private.rs
+
+/Users/billp/Documents/GitHub/Cliniscribe/desktop-app/src-tauri/target/debug/deps/libserde-fff9f5523d9ea713.rlib: /Users/billp/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs /Users/billp/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs /Users/billp/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs /Users/billp/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs /Users/billp/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs /Users/billp/Documents/GitHub/Cliniscribe/desktop-app/src-tauri/target/debug/build/serde-7ceb09fb5009e528/out/private.rs
+
+/Users/billp/Documents/GitHub/Cliniscribe/desktop-app/src-tauri/target/debug/deps/libserde-fff9f5523d9ea713.rmeta: /Users/billp/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs /Users/billp/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs /Users/billp/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs /Users/billp/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs /Users/billp/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs /Users/billp/Documents/GitHub/Cliniscribe/desktop-app/src-tauri/target/debug/build/serde-7ceb09fb5009e528/out/private.rs
+
+/Users/billp/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs:
+/Users/billp/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs:
+/Users/billp/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs:
+/Users/billp/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs:
+/Users/billp/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs:
+/Users/billp/Documents/GitHub/Cliniscribe/desktop-app/src-tauri/target/debug/build/serde-7ceb09fb5009e528/out/private.rs:
+
+# env-dep:OUT_DIR=/Users/billp/Documents/GitHub/Cliniscribe/desktop-app/src-tauri/target/debug/build/serde-7ceb09fb5009e528/out

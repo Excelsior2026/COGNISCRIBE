@@ -160,7 +160,8 @@ function RecordCard({ onUploadStart, onResult, onError, isProcessing }: RecordCa
         // Pro mode: use OBS recording file
         // Read the OBS recording file using Tauri's fs API
         const fileData = await readBinaryFile(obsRecordingPath);
-        const blob = new Blob([fileData]);
+        const uint8 = new Uint8Array(fileData);
+        const blob = new Blob([uint8]);
         const fileName = obsRecordingPath.split('/').pop() || 'recording.mkv';
         fileToProcess = new File([blob], fileName, { type: 'audio/x-matroska' });
       }

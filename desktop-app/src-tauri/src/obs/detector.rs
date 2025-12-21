@@ -1,7 +1,6 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use std::path::PathBuf;
-use std::process::Command;
-use sysinfo::{ProcessExt, System, SystemExt};
+use sysinfo::System;
 
 use super::types::OBSInfo;
 

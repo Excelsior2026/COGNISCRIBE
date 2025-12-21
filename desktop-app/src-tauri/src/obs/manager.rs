@@ -1,8 +1,6 @@
 use anyhow::{anyhow, Context, Result};
 use obws::Client;
 use std::path::PathBuf;
-use std::time::Duration;
-use tokio::sync::Mutex;
 
 use super::types::*;
 
@@ -26,17 +24,9 @@ impl OBSManager {
     pub async fn connect(&mut self, host: &str, port: u16, password: Option<String>) -> Result<OBSConnectionStatus> {
         println!("Connecting to OBS WebSocket at {}:{}...", host, port);
 
-        // Build connection URL
-        let url = format!("{}:{}", host, port);
-
         // Connect to OBS
-        let client = if let Some(pwd) = password {
-            Client::connect_with_password(&url, &pwd).await
-                .context("Failed to connect to OBS WebSocket with password")?
-        } else {
-            Client::connect(&url, None).await
-                .context("Failed to connect to OBS WebSocket")?
-        };
+        let client = Client::connect(host, port, password).await
+            .context("Failed to connect to OBS WebSocket")?;
 
         // Get version info
         let version = client.general().version().await?;
@@ -90,26 +80,26 @@ impl OBSManager {
 
         for input in inputs {
             // Check if this is an audio input
-            if input.input_kind.contains("audio") ||
-               input.input_kind.contains("capture") ||
-               input.input_kind == "coreaudio_input_capture" ||
-               input.input_kind == "wasapi_input_capture" {
+            if input.kind.contains("audio") ||
+               input.kind.contains("capture") ||
+               input.kind == "coreaudio_input_capture" ||
+               input.kind == "wasapi_input_capture" {
 
                 // Get volume and mute status
-                let volume = client.inputs().volume(&input.input_name).await
-                    .unwrap_or(obws::responses::inputs::Volume {
-                        input_volume_db: 0.0,
-                        input_volume_mul: 1.0,
-                    });
+                let volume_result = client.inputs().volume(&input.name).await;
+                let volume_db = match volume_result {
+                    Ok(vol) => vol.db,
+                    Err(_) => 0.0,
+                };
 
-                let muted = client.inputs().muted(&input.input_name).await
+                let muted = client.inputs().muted(&input.name).await
                     .unwrap_or(false);
 
                 audio_sources.push(OBSAudioSource {
-                    name: input.input_name.clone(),
+                    name: input.name.clone(),
                     uuid: None,
-                    input_kind: input.input_kind.clone(),
-                    volume_db: volume.input_volume_db,
+                    input_kind: input.kind.clone(),
+                    volume_db,
                     muted,
                     monitoring_type: "None".to_string(),
                 });
@@ -140,7 +130,7 @@ impl OBSManager {
         self.recording = false;
 
         println!("OBS recording stopped: {:?}", output_path);
-        Ok(PathBuf::from(output_path.output_path))
+        Ok(PathBuf::from(output_path))
     }
 
     /// Pause recording
@@ -171,11 +161,11 @@ impl OBSManager {
         let status = client.recording().status().await?;
 
         Ok(OBSRecordingStatus {
-            recording: status.output_active,
-            paused: status.output_paused,
-            output_path: status.output_path.map(PathBuf::from),
-            duration_seconds: status.output_duration.as_secs(),
-            bytes: status.output_bytes,
+            recording: status.active,
+            paused: status.paused,
+            output_path: None, // Path not available in status response
+            duration_seconds: status.duration.as_seconds_f32() as u64,
+            bytes: status.bytes,
         })
     }
 
@@ -195,14 +185,18 @@ impl OBSManager {
 
             // Create filter
             client.filters().create(obws::requests::filters::Create {
-                source_name,
-                filter_name: &filter_name,
-                filter_kind: &filter_config.filter_type,
-                filter_settings: Some(filter_config.settings.clone()),
+                source: source_name,
+                filter: &filter_name,
+                kind: &filter_config.filter_type,
+                settings: Some(filter_config.settings.clone()),
             }).await.ok(); // Ignore errors if filter already exists
 
             // Enable/disable filter
-            client.filters().set_enabled(source_name, &filter_name, filter_config.enabled).await?;
+            client.filters().set_enabled(obws::requests::filters::SetEnabled {
+                source: source_name,
+                filter: &filter_name,
+                enabled: filter_config.enabled,
+            }).await?;
         }
 
         println!("Successfully applied '{}' preset", preset.name);

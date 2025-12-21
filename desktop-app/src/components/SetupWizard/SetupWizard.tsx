@@ -16,7 +16,6 @@ function SetupWizard({ onComplete }: SetupWizardProps) {
   const [currentStep, setCurrentStep] = useState<SetupStep>('welcome');
   const [downloadProgress, setDownloadProgress] = useState<any>(null);
   const [bundledModelsInstalled, setBundledModelsInstalled] = useState<boolean>(false);
-  const [obsConnected, setObsConnected] = useState<boolean>(false);
 
   // Check for bundled models on mount
   useEffect(() => {
@@ -56,8 +55,7 @@ function SetupWizard({ onComplete }: SetupWizardProps) {
     }
   };
 
-  const handleObsComplete = (connected: boolean) => {
-    setObsConnected(connected);
+  const handleObsComplete = (_connected: boolean) => {
     onComplete();
   };
 

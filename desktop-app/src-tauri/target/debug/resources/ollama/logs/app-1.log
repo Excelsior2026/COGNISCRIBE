@@ -1,0 +1,11 @@
+time=2025-12-20T00:12:42.385-08:00 level=INFO source=app_darwin.go:217 msg="starting Ollama" app=/Applications/Ollama.app version=0.13.5 OS=Darwin/24.6.0
+time=2025-12-20T00:12:42.389-08:00 level=INFO source=updater_darwin.go:405 msg="XXX in getAuthorization"
+time=2025-12-20T00:12:42.402-08:00 level=INFO source=updater_darwin.go:405 msg="XXX requesting right com.electron.ollama.symlink"
+time=2025-12-20T00:12:56.491-08:00 level=INFO source=app.go:237 msg="initialized tools registry" tool_count=0
+time=2025-12-20T00:12:56.491-08:00 level=INFO source=app.go:252 msg="starting ollama server"
+time=2025-12-20T00:12:56.492-08:00 level=INFO source=app.go:277 msg="starting ui server" port=62301
+time=2025-12-20T00:12:56.609-08:00 level=INFO source=updater_darwin.go:405 msg="using v13+ SMAppService for login registration"
+time=2025-12-20T00:12:56.663-08:00 level=INFO source=updater_darwin.go:405 msg="service not found, registering now"
+time=2025-12-20T00:12:56.949-08:00 level=INFO source=app.go:307 msg="received SIGINT or SIGTERM signal, shutting down"
+time=2025-12-20T00:12:57.020-08:00 level=INFO source=app.go:332 msg="shutting down desktop server"
+time=2025-12-20T00:12:57.020-08:00 level=INFO source=app.go:337 msg="shutting down ollama server"

@@ -294,6 +294,55 @@ async fn obs_set_source_muted(
         .map_err(|e| e.to_string())
 }
 
+/// Download and install OBS Studio automatically
+#[tauri::command]
+async fn obs_download_and_install(
+    app_handle: tauri::AppHandle
+) -> Result<(), String> {
+    use obs::{OBSInstaller, OBSInstallProgress};
+
+    let downloads_dir = app_handle
+        .path_resolver()
+        .app_cache_dir()
+        .ok_or("Failed to get cache directory")?
+        .join("downloads");
+
+    let progress_callback = move |progress: OBSInstallProgress| {
+        let _ = app_handle.emit_all("obs-install-progress", progress);
+    };
+
+    OBSInstaller::install_and_configure(&downloads_dir, progress_callback)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Configure OBS Studio settings
+#[tauri::command]
+async fn obs_configure() -> Result<(), String> {
+    use obs::OBSConfigWriter;
+
+    OBSConfigWriter::configure_all()
+        .map_err(|e| e.to_string())
+}
+
+/// Launch OBS Studio
+#[tauri::command]
+async fn obs_launch() -> Result<(), String> {
+    use obs::OBSInstaller;
+
+    OBSInstaller::launch_obs()
+        .map_err(|e| e.to_string())
+}
+
+/// Get OBS download URL for current platform
+#[tauri::command]
+async fn obs_get_download_url() -> Result<String, String> {
+    use obs::OBSInstaller;
+
+    OBSInstaller::get_download_url()
+        .map_err(|e| e.to_string())
+}
+
 // ==================== End OBS Commands ====================
 
 fn main() {
@@ -333,6 +382,11 @@ fn main() {
             obs_get_filter_presets,
             obs_set_source_volume,
             obs_set_source_muted,
+            // OBS installation commands
+            obs_download_and_install,
+            obs_configure,
+            obs_launch,
+            obs_get_download_url,
         ])
         .setup(|app| {
             // Perform any initial setup here
