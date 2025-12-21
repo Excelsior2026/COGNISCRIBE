@@ -19,3 +19,9 @@ desktop-app/installers/macos/pkg-build/.DS_Store
 desktop-app/installers/macos/pkg-build/payload/.DS_Store
 desktop-app/.DS_Store
 desktop-app/.DS_Store
+.DS_Store
+desktop-app/.DS_Store
+desktop-app/installers/.DS_Store
+desktop-app/installers/macos/.DS_Store
+desktop-app/installers/macos/pkg-build/.DS_Store
+desktop-app/installers/macos/pkg-build/payload/.DS_Store
