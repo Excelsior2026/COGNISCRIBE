@@ -50,6 +50,8 @@ a = Analysis(
         'pydub',
         'faster_whisper',
         'requests',
+        'multipart',
+        'python_multipart',
     ],
     hookspath=[],
     hooksconfig={},
