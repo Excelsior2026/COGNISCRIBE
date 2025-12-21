@@ -245,3 +245,102 @@ impl OBSInstaller {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn test_get_download_url_macos() {
+        let result = OBSInstaller::get_download_url();
+        assert!(result.is_ok());
+
+        let url = result.unwrap();
+        assert!(url.contains("https://"));
+        assert!(url.contains("obs-studio"));
+        assert!(url.contains(".dmg"));
+
+        // Check for Apple or Intel specific naming
+        assert!(url.contains("Apple") || url.contains("Intel"));
+    }
+
+    #[test]
+    #[cfg(target_os = "windows")]
+    fn test_get_download_url_windows() {
+        let result = OBSInstaller::get_download_url();
+        assert!(result.is_ok());
+
+        let url = result.unwrap();
+        assert!(url.contains("https://"));
+        assert!(url.contains("obs-studio"));
+        assert!(url.contains(".exe"));
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn test_get_download_url_linux_error() {
+        let result = OBSInstaller::get_download_url();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_launch_obs_path() {
+        // Just verify the function exists and returns a Result
+        let result = OBSInstaller::launch_obs();
+
+        // It will fail if OBS isn't installed, but shouldn't panic
+        match result {
+            Ok(_) => println!("OBS launched successfully"),
+            Err(e) => println!("OBS launch failed (expected if not installed): {}", e),
+        }
+    }
+
+    #[test]
+    fn test_obs_install_progress_creation() {
+        let progress = OBSInstallProgress {
+            stage: "downloading".to_string(),
+            progress: 50.0,
+            message: "Downloading...".to_string(),
+        };
+
+        assert_eq!(progress.stage, "downloading");
+        assert_eq!(progress.progress, 50.0);
+        assert_eq!(progress.message, "Downloading...");
+    }
+
+    #[test]
+    fn test_obs_install_progress_serialization() {
+        let progress = OBSInstallProgress {
+            stage: "installed".to_string(),
+            progress: 100.0,
+            message: "Complete!".to_string(),
+        };
+
+        let json = serde_json::to_string(&progress).unwrap();
+        assert!(json.contains("installed"));
+        assert!(json.contains("100"));
+
+        let deserialized: OBSInstallProgress = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.stage, "installed");
+        assert_eq!(deserialized.progress, 100.0);
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn test_macos_architecture_detection() {
+        // This tests that we can detect the architecture
+        use std::process::Command;
+
+        let output = Command::new("uname")
+            .arg("-m")
+            .output()
+            .expect("Failed to run uname");
+
+        let arch = String::from_utf8_lossy(&output.stdout);
+        println!("Detected architecture: {}", arch.trim());
+
+        // Should be either arm64 or x86_64
+        assert!(arch.contains("arm64") || arch.contains("x86_64"));
+    }
+}
