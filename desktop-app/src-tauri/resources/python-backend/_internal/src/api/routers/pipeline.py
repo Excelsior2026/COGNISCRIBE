@@ -15,7 +15,8 @@ router = APIRouter()
 def validate_audio_file(file: UploadFile) -> None:
     """Validate uploaded audio file."""
     # Check file extension
-    file_ext = os.path.splitext(file.filename)[1].lower()
+    filename = os.path.basename(file.filename or "")
+    file_ext = os.path.splitext(filename)[1].lower()
     if file_ext not in ALLOWED_AUDIO_FORMATS:
         raise HTTPException(
             status_code=400,
@@ -64,12 +65,27 @@ async def pipeline(
         os.makedirs(storage_path, exist_ok=True)
         
         # Save uploaded file
-        raw_path = os.path.join(storage_path, f"{uuid.uuid4()}_{file.filename}")
+        safe_filename = os.path.basename(file.filename or "audio")
+        raw_path = os.path.join(storage_path, f"{uuid.uuid4()}_{safe_filename}")
         logger.debug(f"Saving uploaded file to: {raw_path}")
-        
-        content = await file.read()
+
+        max_bytes = MAX_FILE_SIZE_MB * 1024 * 1024
+        total_bytes = 0
         with open(raw_path, "wb") as f:
-            f.write(content)
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+                total_bytes += len(chunk)
+                if total_bytes > max_bytes:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"File too large ({total_bytes / 1024 / 1024:.1f}MB). "
+                               f"Maximum allowed: {MAX_FILE_SIZE_MB}MB"
+                    )
+                f.write(chunk)
+
+        await file.close()
         
         # Stage 1: Preprocess audio
         logger.info("Stage 1/3: Preprocessing audio...")
@@ -107,7 +123,14 @@ async def pipeline(
         }
         
     except HTTPException:
-        # Re-raise validation errors
+        # Cleanup on validation errors
+        if clean_path:
+            audio_preprocess.cleanup_temp_file(clean_path)
+        if raw_path and os.path.exists(raw_path):
+            try:
+                os.remove(raw_path)
+            except Exception:
+                pass
         raise
         
     except Exception as e:
@@ -116,6 +139,11 @@ async def pipeline(
         # Cleanup on failure
         if clean_path:
             audio_preprocess.cleanup_temp_file(clean_path)
+        if raw_path and os.path.exists(raw_path):
+            try:
+                os.remove(raw_path)
+            except Exception:
+                pass
         
         # Return user-friendly error
         return JSONResponse(

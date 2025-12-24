@@ -37,7 +37,7 @@ function UploadCard({ onResult, onUploadStart, onError, isProcessing }: UploadCa
         filters: [
           {
             name: 'Audio',
-            extensions: ['wav', 'mp3', 'm4a', 'flac', 'ogg', 'aac', 'wma'],
+            extensions: ['wav', 'mp3', 'm4a', 'flac', 'ogg', 'aac', 'wma', 'webm', 'mkv', 'mp4'],
           },
         ],
       });
@@ -116,9 +116,44 @@ function UploadCard({ onResult, onUploadStart, onError, isProcessing }: UploadCa
   const createFilePayload = async (path: string): Promise<FormData> => {
     // Read file using Tauri's fs API
     const { readBinaryFile } = await import('@tauri-apps/api/fs');
-    const contents = await readBinaryFile(path);
+    let contents;
+    try {
+      contents = await readBinaryFile(path);
+    } catch (readErr) {
+      throw new Error(
+        'Failed to load the selected file. Please move it to your home folder and try again.'
+      );
+    }
 
-    const blob = new Blob([new Uint8Array(contents)], { type: 'audio/mpeg' });
+    const extension = (fileName || path).split('.').pop()?.toLowerCase() || '';
+    const mimeType = (() => {
+      switch (extension) {
+        case 'wav':
+          return 'audio/wav';
+        case 'mp3':
+          return 'audio/mpeg';
+        case 'm4a':
+          return 'audio/mp4';
+        case 'flac':
+          return 'audio/flac';
+        case 'ogg':
+          return 'audio/ogg';
+        case 'aac':
+          return 'audio/aac';
+        case 'wma':
+          return 'audio/x-ms-wma';
+        case 'webm':
+          return 'audio/webm';
+        case 'mkv':
+          return 'audio/x-matroska';
+        case 'mp4':
+          return 'audio/mp4';
+        default:
+          return 'application/octet-stream';
+      }
+    })();
+
+    const blob = new Blob([new Uint8Array(contents)], { type: mimeType });
     const formData = new FormData();
     formData.append('file', blob, fileName || 'audio.mp3');
 
@@ -166,7 +201,7 @@ function UploadCard({ onResult, onUploadStart, onError, isProcessing }: UploadCa
               <p className="text-lg font-semibold text-gray-800">Click to select lecture audio</p>
               <p className="text-sm text-gray-500 mt-1">or drag and drop (coming soon)</p>
             </div>
-            <p className="text-xs text-gray-400">MP3, WAV, M4A, FLAC, OGG, AAC, WMA (up to 500MB)</p>
+            <p className="text-xs text-gray-400">MP3, WAV, M4A, FLAC, OGG, AAC, WMA, WEBM, MKV, MP4 (up to 1GB)</p>
           </div>
         )}
       </div>

@@ -9,10 +9,12 @@ interface DownloadProgress {
 
 interface ModelDownloadStepProps {
   progress: DownloadProgress | null;
+  error?: string;
+  onRetry?: () => void;
   onNext: () => void;
 }
 
-function ModelDownloadStep({ progress, onNext }: ModelDownloadStepProps) {
+function ModelDownloadStep({ progress, error, onRetry, onNext }: ModelDownloadStepProps) {
   const formatBytes = (bytes: number) => {
     if (bytes === 0) return '0 GB';
     const gb = bytes / 1_000_000_000;
@@ -90,10 +92,24 @@ function ModelDownloadStep({ progress, onNext }: ModelDownloadStepProps) {
             </div>
           )}
 
-          {!progress && (
+          {!progress && !error && (
             <div className="text-center py-12">
               <div className="animate-spin h-16 w-16 border-4 border-blue-500 border-t-transparent rounded-full mx-auto mb-4"></div>
               <p className="text-gray-600">Preparing download...</p>
+            </div>
+          )}
+
+          {error && (
+            <div className="text-center py-8">
+              <div className="text-5xl mb-3">⚠️</div>
+              <p className="text-red-700 font-semibold mb-2">Download failed</p>
+              <p className="text-sm text-gray-600 mb-6">{error}</p>
+              <button
+                onClick={onRetry}
+                className="bg-blue-600 text-white font-semibold py-3 px-8 rounded-xl hover:bg-blue-700 transition-colors"
+              >
+                Retry Download
+              </button>
             </div>
           )}
 

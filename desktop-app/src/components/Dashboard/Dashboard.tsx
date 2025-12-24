@@ -42,7 +42,7 @@ function Dashboard({ serviceStatus, onRefreshStatus }: DashboardProps) {
         <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <h1 className="text-2xl font-bold">
-              <span className="text-blue-600">Clini</span>
+              <span className="text-blue-600">Cogni</span>
               <span className="text-teal-600">Scribe</span>
             </h1>
             <span className="text-sm text-gray-500">Desktop</span>

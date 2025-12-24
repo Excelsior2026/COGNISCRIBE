@@ -1,1 +1,1 @@
-# CliniScribe package
+# CogniScribe package

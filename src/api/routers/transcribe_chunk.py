@@ -3,6 +3,8 @@ Streaming transcription endpoint for live preview during recording
 """
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+from typing import Optional
+import mimetypes
 from src.api.services import transcriber
 from src.utils.logger import setup_logger
 import tempfile
@@ -16,6 +18,7 @@ logger = setup_logger(__name__)
 class AudioChunkRequest(BaseModel):
     audio: str  # Base64-encoded audio data
     timestamp: int  # Recording timestamp in seconds
+    mime_type: Optional[str] = None  # Optional MIME type for correct decoding
 
 
 @router.post("/transcribe-chunk")
@@ -32,8 +35,21 @@ async def transcribe_chunk(request: AudioChunkRequest):
         # Decode base64 audio
         audio_bytes = base64.b64decode(request.audio)
 
+        # Derive a safe suffix for ffmpeg/whisper to parse
+        normalized_mime = (request.mime_type or "").split(";")[0].strip().lower()
+        if normalized_mime == "audio/mp4":
+            suffix = ".m4a"
+        elif normalized_mime == "audio/ogg":
+            suffix = ".ogg"
+        elif normalized_mime == "audio/mpeg":
+            suffix = ".mp3"
+        elif normalized_mime == "audio/webm":
+            suffix = ".webm"
+        else:
+            suffix = mimetypes.guess_extension(normalized_mime) or ".webm"
+
         # Save to temporary file
-        with tempfile.NamedTemporaryFile(suffix='.webm', delete=False) as temp_file:
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as temp_file:
             temp_file.write(audio_bytes)
             temp_path = temp_file.name
 

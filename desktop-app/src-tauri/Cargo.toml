@@ -22,6 +22,9 @@ futures = "0.3"
 anyhow = "1.0"
 thiserror = "1.0"
 dirs = "5.0"
+cpal = "0.15"
+hound = "3.5"
+crossbeam-channel = "0.5"
 
 # OBS WebSocket Integration
 obws = "0.11"

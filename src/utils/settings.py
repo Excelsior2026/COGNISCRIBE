@@ -8,7 +8,7 @@ TEMP_AUDIO_DIR = os.environ.get("TEMP_AUDIO_DIR", "temp_processed")
 
 # File upload limits
 MAX_FILE_SIZE_MB = int(os.environ.get("MAX_FILE_SIZE_MB", "1000"))
-ALLOWED_AUDIO_FORMATS = [".wav", ".mp3", ".m4a", ".flac", ".ogg", ".aac", ".wma"]
+ALLOWED_AUDIO_FORMATS = [".wav", ".mp3", ".m4a", ".flac", ".ogg", ".aac", ".wma", ".webm", ".mp4", ".mkv"]
 
 # Whisper model settings
 WHISPER_MODEL: Literal["tiny", "base", "small", "medium", "large-v3"] = os.environ.get(

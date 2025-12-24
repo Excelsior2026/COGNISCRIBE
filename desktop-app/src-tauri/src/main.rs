@@ -5,6 +5,7 @@ mod process_manager;
 mod config;
 mod model_downloader;
 mod obs;
+mod audio;
 
 use tokio::sync::Mutex;
 use tauri::{Manager, State};
@@ -12,12 +13,14 @@ use process_manager::{ProcessManager, ServiceStatus};
 use config::{AppConfig, load_config, save_config};
 use model_downloader::{download_whisper_model, download_ollama_model, DownloadProgress, are_bundled_models_installed};
 use obs::{OBSDetector, OBSManager, OBSInfo, OBSConnectionStatus, OBSAudioSource, OBSRecordingStatus, AudioFilterPreset};
+use audio::NativeRecorderController;
 
 // Application state
 struct AppState {
     process_manager: Mutex<ProcessManager>,
     config: Mutex<AppConfig>,
     obs_manager: Mutex<OBSManager>,
+    native_recorder: NativeRecorderController,
 }
 
 /// Check if this is the first run of the application
@@ -159,6 +162,55 @@ async fn save_recorded_audio(path: String, audio_data: Vec<u8>) -> Result<(), St
         .map_err(|e| format!("Failed to save recording: {}", e))?;
 
     Ok(())
+}
+
+// ==================== In-App Recording Commands ====================
+
+/// Start native in-app recording (studio pipeline).
+#[tauri::command]
+fn native_start_recording(state: State<'_, AppState>) -> Result<String, String> {
+    state
+        .native_recorder
+        .start()
+        .map(|path| path.to_string_lossy().to_string())
+        .map_err(|e| e.to_string())
+}
+
+/// Stop native in-app recording and return the output file path.
+#[tauri::command]
+fn native_stop_recording(state: State<'_, AppState>) -> Result<String, String> {
+    state
+        .native_recorder
+        .stop()
+        .map(|path| path.to_string_lossy().to_string())
+        .map_err(|e| e.to_string())
+}
+
+/// Pause native recording without stopping the stream.
+#[tauri::command]
+fn native_pause_recording(state: State<'_, AppState>) -> Result<(), String> {
+    state
+        .native_recorder
+        .pause()
+        .map_err(|e| e.to_string())
+}
+
+/// Resume native recording.
+#[tauri::command]
+fn native_resume_recording(state: State<'_, AppState>) -> Result<(), String> {
+    state
+        .native_recorder
+        .resume()
+        .map_err(|e| e.to_string())
+}
+
+/// Check if native recording is active.
+#[tauri::command]
+fn native_is_recording(state: State<'_, AppState>) -> Result<bool, String> {
+    state
+        .native_recorder
+        .is_recording()
+        .map_err(|e| e.to_string())
 }
 
 // ==================== OBS Integration Commands ====================
@@ -354,6 +406,7 @@ fn main() {
             process_manager: Mutex::new(ProcessManager::new()),
             config: Mutex::new(config),
             obs_manager: Mutex::new(OBSManager::new()),
+            native_recorder: NativeRecorderController::new(),
         })
         .invoke_handler(tauri::generate_handler![
             is_first_run,
@@ -367,6 +420,11 @@ fn main() {
             check_backend_health,
             check_bundled_models,
             save_recorded_audio,
+            native_start_recording,
+            native_stop_recording,
+            native_pause_recording,
+            native_resume_recording,
+            native_is_recording,
             // OBS commands
             obs_detect,
             obs_connect,

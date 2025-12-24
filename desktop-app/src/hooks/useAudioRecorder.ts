@@ -5,6 +5,7 @@ interface AudioRecorderState {
   isPaused: boolean;
   recordingTime: number;
   audioBlob: Blob | null;
+  mimeType: string;
   error: string | null;
 }
 
@@ -28,6 +29,7 @@ export function useAudioRecorder(
   const [isPaused, setIsPaused] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
+  const [mimeType, setMimeType] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -35,6 +37,49 @@ export function useAudioRecorder(
   const timerRef = useRef<number | null>(null);
   const chunkTimerRef = useRef<number | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const pickMimeType = (): string => {
+    if (typeof MediaRecorder === 'undefined') {
+      return '';
+    }
+
+    const candidates = [
+      'audio/webm;codecs=opus',
+      'audio/webm',
+      'audio/mp4',
+      'audio/ogg',
+      'audio/mpeg',
+    ];
+
+    for (const candidate of candidates) {
+      if (MediaRecorder.isTypeSupported(candidate)) {
+        return candidate;
+      }
+    }
+
+    return '';
+  };
+
+  const getMediaErrorMessage = (err: unknown): string => {
+    if (err instanceof DOMException) {
+      switch (err.name) {
+        case 'NotAllowedError':
+        case 'PermissionDeniedError':
+          return 'Microphone access denied. Enable it in System Settings > Privacy & Security > Microphone.';
+        case 'NotFoundError':
+        case 'DevicesNotFoundError':
+          return 'No microphone detected. Connect a microphone and try again.';
+        case 'NotReadableError':
+        case 'TrackStartError':
+          return 'Microphone is in use by another app. Close it and try again.';
+        default:
+          return err.message || 'Failed to access microphone.';
+      }
+    }
+    if (err instanceof Error) {
+      return err.message || 'Failed to access microphone.';
+    }
+    return 'Failed to access microphone.';
+  };
 
   // Start recording timer
   const startTimer = useCallback(() => {
@@ -87,17 +132,20 @@ export function useAudioRecorder(
       streamRef.current = stream;
 
       // Create MediaRecorder with appropriate MIME type
-      const mimeType = MediaRecorder.isTypeSupported('audio/webm')
-        ? 'audio/webm'
-        : 'audio/ogg';
+      const selectedMimeType = pickMimeType();
 
-      const mediaRecorder = new MediaRecorder(stream, {
-        mimeType,
-        audioBitsPerSecond: 128000,
-      });
+      const mediaRecorder = selectedMimeType
+        ? new MediaRecorder(stream, {
+            mimeType: selectedMimeType,
+            audioBitsPerSecond: 128000,
+          })
+        : new MediaRecorder(stream, {
+            audioBitsPerSecond: 128000,
+          });
 
       mediaRecorderRef.current = mediaRecorder;
       chunksRef.current = [];
+      setMimeType(mediaRecorder.mimeType || selectedMimeType);
 
       // Handle data available (for both chunks and final recording)
       mediaRecorder.ondataavailable = (event) => {
@@ -113,8 +161,13 @@ export function useAudioRecorder(
 
       // Handle recording stop
       mediaRecorder.onstop = () => {
-        const blob = new Blob(chunksRef.current, { type: mimeType });
+        const chunkMimeType = chunksRef.current.find((chunk) => chunk.type)?.type || '';
+        const finalMimeType = mediaRecorder.mimeType || chunkMimeType || selectedMimeType || '';
+        const blob = finalMimeType
+          ? new Blob(chunksRef.current, { type: finalMimeType })
+          : new Blob(chunksRef.current);
         setAudioBlob(blob);
+        setMimeType(finalMimeType);
         setIsRecording(false);
         stopTimer();
         stopChunkTimer();
@@ -146,8 +199,7 @@ export function useAudioRecorder(
       startTimer();
       startChunkTimer();
     } catch (err) {
-      const errorMessage =
-        err instanceof Error ? err.message : 'Failed to access microphone';
+      const errorMessage = getMediaErrorMessage(err);
       setError(errorMessage);
       console.error('Error starting recording:', err);
     }
@@ -181,6 +233,7 @@ export function useAudioRecorder(
     setAudioBlob(null);
     setRecordingTime(0);
     setError(null);
+    setMimeType('');
     chunksRef.current = [];
   }, []);
 
@@ -189,6 +242,7 @@ export function useAudioRecorder(
     isPaused,
     recordingTime,
     audioBlob,
+    mimeType,
     error,
     audioChunks: chunksRef.current,
     startRecording,

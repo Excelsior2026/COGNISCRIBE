@@ -10,7 +10,7 @@ BUNDLE_ID="com.bageltech.cogniscribe"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DESKTOP_APP_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 BUILD_DIR="$DESKTOP_APP_DIR/src-tauri/target/release/bundle/macos"
-PKG_DIR="$SCRIPT_DIR/pkg-build"
+PKG_DIR="$(mktemp -d "$SCRIPT_DIR/pkg-build.XXXXXX")"
 OUTPUT_DIR="$DESKTOP_APP_DIR/installers/output/macos"
 
 # Colors
@@ -37,9 +37,20 @@ if [ ! -d "$BUILD_DIR/$APP_NAME.app" ]; then
 fi
 echo -e "${GREEN}✓ Found $APP_NAME.app${NC}"
 
+# Step 2.5: Ensure microphone usage description exists
+INFO_PLIST="$BUILD_DIR/$APP_NAME.app/Contents/Info.plist"
+MIC_DESC="CogniScribe needs access to your microphone to record lectures."
+if [ -f "$INFO_PLIST" ]; then
+    /usr/libexec/PlistBuddy -c "Print :NSMicrophoneUsageDescription" "$INFO_PLIST" >/dev/null 2>&1 \
+        && /usr/libexec/PlistBuddy -c "Set :NSMicrophoneUsageDescription \"$MIC_DESC\"" "$INFO_PLIST" \
+        || /usr/libexec/PlistBuddy -c "Add :NSMicrophoneUsageDescription string \"$MIC_DESC\"" "$INFO_PLIST"
+    echo -e "${GREEN}✓ Updated Info.plist microphone usage description${NC}"
+else
+    echo "⚠️  Warning: Info.plist not found to set microphone usage description"
+fi
+
 # Step 3: Create PKG structure
 echo -e "${BLUE}Step 2: Creating PKG structure...${NC}"
-rm -rf "$PKG_DIR"
 mkdir -p "$PKG_DIR/payload/Applications"
 mkdir -p "$PKG_DIR/scripts"
 mkdir -p "$OUTPUT_DIR"

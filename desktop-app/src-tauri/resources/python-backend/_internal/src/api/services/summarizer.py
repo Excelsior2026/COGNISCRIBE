@@ -34,7 +34,7 @@ def generate_summary(text: str, ratio: float = 0.15, subject: Optional[str] = No
     # Build subject-specific prompt
     subject_context = f" Focus on {subject} content." if subject else ""
     
-    prompt = f"""You are CliniScribe, an AI assistant helping medical and nursing students learn from lecture recordings.
+    prompt = f"""You are CogniScribe, an AI assistant helping medical and nursing students learn from lecture recordings.
 
 Generate well-structured study notes in the following format:
 

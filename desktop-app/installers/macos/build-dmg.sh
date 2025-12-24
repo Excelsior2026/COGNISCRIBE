@@ -6,8 +6,10 @@ echo "🍎 Building macOS DMG for CogniScribe..."
 # Configuration
 APP_NAME="CogniScribe"
 VERSION="1.0.0"
-BUILD_DIR="$(pwd)/src-tauri/target/release/bundle/macos"
-OUTPUT_DIR="$(pwd)/installers/output/macos"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DESKTOP_APP_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+BUILD_DIR="$DESKTOP_APP_DIR/src-tauri/target/release/bundle/macos"
+OUTPUT_DIR="$DESKTOP_APP_DIR/installers/output/macos"
 DMG_NAME="$APP_NAME-$VERSION"
 
 # Colors
@@ -17,7 +19,7 @@ NC='\033[0m'
 
 # Step 1: Build Tauri app
 echo -e "${BLUE}Step 1: Building Tauri application...${NC}"
-cd "$(dirname "$0")/../.."
+cd "$DESKTOP_APP_DIR"
 npm run tauri:build
 echo -e "${GREEN}✓ Build complete${NC}"
 
@@ -25,6 +27,18 @@ echo -e "${GREEN}✓ Build complete${NC}"
 if [ ! -d "$BUILD_DIR/$APP_NAME.app" ]; then
     echo "❌ Error: $APP_NAME.app not found"
     exit 1
+fi
+
+# Step 2.5: Ensure microphone usage description exists
+INFO_PLIST="$BUILD_DIR/$APP_NAME.app/Contents/Info.plist"
+MIC_DESC="CogniScribe needs access to your microphone to record lectures."
+if [ -f "$INFO_PLIST" ]; then
+    /usr/libexec/PlistBuddy -c "Print :NSMicrophoneUsageDescription" "$INFO_PLIST" >/dev/null 2>&1 \
+        && /usr/libexec/PlistBuddy -c "Set :NSMicrophoneUsageDescription \"$MIC_DESC\"" "$INFO_PLIST" \
+        || /usr/libexec/PlistBuddy -c "Add :NSMicrophoneUsageDescription string \"$MIC_DESC\"" "$INFO_PLIST"
+    echo -e "${GREEN}✓ Updated Info.plist microphone usage description${NC}"
+else
+    echo "⚠️  Warning: Info.plist not found to set microphone usage description"
 fi
 
 # Step 3: Create DMG
@@ -49,6 +63,8 @@ else
     echo "create-dmg not found, using hdiutil..."
 
     TMP_DMG="$OUTPUT_DIR/tmp-$DMG_NAME.dmg"
+    rm -f "$OUTPUT_DIR/$DMG_NAME.dmg"
+    rm -f "$TMP_DMG"
 
     hdiutil create -size 800m -fs HFS+ -volname "$APP_NAME" "$TMP_DMG"
 
@@ -59,7 +75,7 @@ else
 
     hdiutil detach "/Volumes/$APP_NAME"
 
-    hdiutil convert "$TMP_DMG" -format UDZO -o "$OUTPUT_DIR/$DMG_NAME.dmg"
+    hdiutil convert "$TMP_DMG" -format UDZO -o "$OUTPUT_DIR/$DMG_NAME.dmg" -ov
     rm "$TMP_DMG"
 fi
 
