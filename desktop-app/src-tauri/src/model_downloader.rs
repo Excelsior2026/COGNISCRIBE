@@ -4,6 +4,66 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use tokio::fs;
 use tokio::io::AsyncWriteExt;
+use sha2::{Digest, Sha256};
+
+fn checksum_required() -> bool {
+    matches!(
+        std::env::var("OLLAMA_REQUIRE_CHECKSUM")
+            .unwrap_or_default()
+            .to_lowercase()
+            .as_str(),
+        "true" | "1" | "yes"
+    )
+}
+
+fn parse_checksum_text(text: &str) -> Option<String> {
+    for line in text.lines() {
+        let token = line.split_whitespace().next()?;
+        if token.len() == 64 && token.chars().all(|c| c.is_ascii_hexdigit()) {
+            return Some(token.to_ascii_lowercase());
+        }
+    }
+    None
+}
+
+fn hex_encode(bytes: &[u8]) -> String {
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for b in bytes {
+        out.push_str(&format!("{:02x}", b));
+    }
+    out
+}
+
+async fn fetch_checksum(url: &str) -> Result<Option<String>> {
+    let client = reqwest::Client::new();
+    let suffixes = [".sha256", ".sha256sum"];
+
+    for suffix in suffixes {
+        let checksum_url = format!("{}{}", url, suffix);
+        let response = client
+            .get(&checksum_url)
+            .send()
+            .await
+            .context("Failed to download Ollama checksum")?;
+
+        if response.status().is_success() {
+            let text = response
+                .text()
+                .await
+                .context("Failed to read Ollama checksum response")?;
+            let checksum = parse_checksum_text(&text).context("Failed to parse Ollama checksum")?;
+            return Ok(Some(checksum));
+        }
+
+        if response.status().as_u16() == 404 {
+            continue;
+        }
+
+        anyhow::bail!("Checksum request failed with status {}", response.status());
+    }
+
+    Ok(None)
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DownloadProgress {
@@ -115,6 +175,10 @@ where
     }
 
     let url = ollama_download_url()?;
+    let checksum = fetch_checksum(&url).await?;
+    if checksum.is_none() && checksum_required() {
+        anyhow::bail!("Ollama checksum missing and verification is required");
+    }
     let app_dir = ollama_app_dir()?;
     fs::create_dir_all(&app_dir)
         .await
@@ -143,6 +207,7 @@ where
     let mut file = fs::File::create(&app_path)
         .await
         .context("Failed to create Ollama binary file")?;
+    let mut hasher = Sha256::new();
 
     let mut stream = response.bytes_stream();
     while let Some(chunk) = stream.next().await {
@@ -150,6 +215,7 @@ where
         file.write_all(&chunk)
             .await
             .context("Failed to write Ollama binary")?;
+        hasher.update(&chunk);
         downloaded += chunk.len() as u64;
 
         let percent = if total > 0 {
@@ -171,6 +237,14 @@ where
     file.flush()
         .await
         .context("Failed to finalize Ollama binary")?;
+
+    if let Some(expected) = checksum {
+        let digest = hex_encode(&hasher.finalize());
+        if digest != expected {
+            let _ = std::fs::remove_file(&app_path);
+            anyhow::bail!("Ollama checksum verification failed");
+        }
+    }
 
     #[cfg(unix)]
     {
@@ -266,42 +340,54 @@ where
     let mut total_downloaded: u64 = 0;
     let total_size: u64 = 4_700_000_000; // Approximate
 
-    while let Some(chunk) = response.chunk().await.context("Download interrupted")? {
-        // Parse progress from Ollama's response
+    let mut buffer = String::new();
+    let mut stream = response.bytes_stream();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.context("Download interrupted")?;
         if let Ok(text) = std::str::from_utf8(&chunk) {
-            if let Ok(json) = serde_json::from_str::<serde_json::Value>(text) {
-                if let Some(completed) = json.get("completed").and_then(|v| v.as_u64()) {
-                    total_downloaded = completed;
+            buffer.push_str(text);
+
+            while let Some(pos) = buffer.find('\n') {
+                let line = buffer[..pos].trim().to_string();
+                buffer.drain(..=pos);
+                if line.is_empty() {
+                    continue;
                 }
 
-                if let Some(total) = json.get("total").and_then(|v| v.as_u64()) {
-                    let percent = (total_downloaded as f64 / total as f64 * 100.0) as f32;
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&line) {
+                    if let Some(completed) = json.get("completed").and_then(|v| v.as_u64()) {
+                        total_downloaded = completed;
+                    }
 
-                    progress_callback(DownloadProgress {
-                        model_name: "llama3.1:8b".to_string(),
-                        status: "downloading".to_string(),
-                        percent,
-                        downloaded_bytes: total_downloaded,
-                        total_bytes: total,
-                        message: format!(
-                            "Downloading: {:.1} GB / {:.1} GB",
-                            total_downloaded as f64 / 1_000_000_000.0,
-                            total as f64 / 1_000_000_000.0
-                        ),
-                    });
-                }
+                    if let Some(total) = json.get("total").and_then(|v| v.as_u64()) {
+                        let percent = (total_downloaded as f64 / total as f64 * 100.0) as f32;
 
-                if let Some(status) = json.get("status").and_then(|v| v.as_str()) {
-                    if status == "success" {
                         progress_callback(DownloadProgress {
                             model_name: "llama3.1:8b".to_string(),
-                            status: "complete".to_string(),
-                            percent: 100.0,
-                            downloaded_bytes: total_size,
-                            total_bytes: total_size,
-                            message: "Download complete!".to_string(),
+                            status: "downloading".to_string(),
+                            percent,
+                            downloaded_bytes: total_downloaded,
+                            total_bytes: total,
+                            message: format!(
+                                "Downloading: {:.1} GB / {:.1} GB",
+                                total_downloaded as f64 / 1_000_000_000.0,
+                                total as f64 / 1_000_000_000.0
+                            ),
                         });
-                        break;
+                    }
+
+                    if let Some(status) = json.get("status").and_then(|v| v.as_str()) {
+                        if status == "success" {
+                            progress_callback(DownloadProgress {
+                                model_name: "llama3.1:8b".to_string(),
+                                status: "complete".to_string(),
+                                percent: 100.0,
+                                downloaded_bytes: total_size,
+                                total_bytes: total_size,
+                                message: "Download complete!".to_string(),
+                            });
+                            return Ok(());
+                        }
                     }
                 }
             }
@@ -313,6 +399,7 @@ where
 }
 
 /// Check if a model is already downloaded
+#[allow(dead_code)]
 pub async fn is_model_downloaded(model_name: &str) -> Result<bool> {
     let client = reqwest::Client::new();
 

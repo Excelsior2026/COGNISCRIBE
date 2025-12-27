@@ -111,6 +111,7 @@ pub fn save_config(config: &AppConfig) -> Result<()> {
 }
 
 /// Ensure data directories exist
+#[allow(dead_code)]
 pub fn ensure_data_directories(config: &AppConfig) -> Result<()> {
     fs::create_dir_all(&config.data_directory)
         .context("Failed to create data directory")?;

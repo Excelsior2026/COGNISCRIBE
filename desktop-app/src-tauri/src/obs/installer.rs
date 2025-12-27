@@ -5,6 +5,7 @@ use std::process::Command;
 /// OBS Studio download URLs
 const OBS_MACOS_ARM_URL: &str = "https://cdn-fastly.obsproject.com/downloads/OBS-Studio-30.2.2-macOS-Apple.dmg";
 const OBS_MACOS_INTEL_URL: &str = "https://cdn-fastly.obsproject.com/downloads/OBS-Studio-30.2.2-macOS-Intel.dmg";
+#[allow(dead_code)]
 const OBS_WINDOWS_URL: &str = "https://cdn-fastly.obsproject.com/downloads/OBS-Studio-30.2.2-Windows-Installer.exe";
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
@@ -257,9 +258,10 @@ mod tests {
         assert!(result.is_ok());
 
         let url = result.unwrap();
-        assert!(url.contains("https://"));
-        assert!(url.contains("obs-studio"));
-        assert!(url.contains(".dmg"));
+        let url_lower = url.to_lowercase();
+        assert!(url_lower.contains("https://"));
+        assert!(url_lower.contains("obs-studio"));
+        assert!(url_lower.contains(".dmg"));
 
         // Check for Apple or Intel specific naming
         assert!(url.contains("Apple") || url.contains("Intel"));
@@ -272,9 +274,10 @@ mod tests {
         assert!(result.is_ok());
 
         let url = result.unwrap();
-        assert!(url.contains("https://"));
-        assert!(url.contains("obs-studio"));
-        assert!(url.contains(".exe"));
+        let url_lower = url.to_lowercase();
+        assert!(url_lower.contains("https://"));
+        assert!(url_lower.contains("obs-studio"));
+        assert!(url_lower.contains(".exe"));
     }
 
     #[test]

@@ -270,7 +270,7 @@ mod tests {
         // Check preset names
         let names: Vec<&str> = presets.iter().map(|p| p.name.as_str()).collect();
         assert!(names.contains(&"Lecture Hall"));
-        assert!(names.contains(&"Clinical Skills Center"));
+        assert!(names.contains(&"Clinical Skills"));
         assert!(names.contains(&"Online Lecture"));
     }
 

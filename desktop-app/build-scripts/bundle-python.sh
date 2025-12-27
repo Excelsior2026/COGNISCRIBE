@@ -44,15 +44,29 @@ fi
 cat > cogniscribe-api.spec << 'EOF'
 # -*- mode: python ; coding: utf-8 -*-
 
+import importlib.util
+from pathlib import Path
+
 block_cipher = None
+
+faster_whisper_spec = importlib.util.find_spec('faster_whisper')
+if faster_whisper_spec and faster_whisper_spec.origin:
+    faster_whisper_dir = Path(faster_whisper_spec.origin).resolve().parent
+    faster_whisper_assets = faster_whisper_dir / 'assets'
+else:
+    faster_whisper_assets = None
+
+datas = [
+    ('src', 'src'),
+]
+if faster_whisper_assets and faster_whisper_assets.exists():
+    datas.append((str(faster_whisper_assets), 'faster_whisper/assets'))
 
 a = Analysis(
     ['src/api/main.py'],
     pathex=[],
     binaries=[],
-    datas=[
-        ('src', 'src'),
-    ],
+    datas=datas,
     hiddenimports=[
         'uvicorn.logging',
         'uvicorn.loops',

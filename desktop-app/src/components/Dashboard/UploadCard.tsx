@@ -20,9 +20,32 @@ interface UploadCardProps {
   onUploadStart: () => void;
   onError: () => void;
   isProcessing: boolean;
+  isBackendReady: boolean;
+  backendStatusMessage: string;
+  onPreflightCheck: () => Promise<boolean>;
 }
 
-function UploadCard({ onResult, onUploadStart, onError, isProcessing }: UploadCardProps) {
+const getProcessingErrorMessage = (err: unknown, fallback: string) => {
+  if (err instanceof Error) {
+    const message = err.message || fallback;
+    const normalized = message.toLowerCase();
+    if (normalized.includes('load failed') || normalized.includes('failed to fetch')) {
+      return 'Could not connect to the local processing service. Make sure it is running and try again.';
+    }
+    return message;
+  }
+  return fallback;
+};
+
+function UploadCard({
+  onResult,
+  onUploadStart,
+  onError,
+  isProcessing,
+  isBackendReady,
+  backendStatusMessage,
+  onPreflightCheck,
+}: UploadCardProps) {
   const [filePath, setFilePath] = useState<string | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
   const [subject, setSubject] = useState('');
@@ -59,8 +82,24 @@ function UploadCard({ onResult, onUploadStart, onError, isProcessing }: UploadCa
       return;
     }
 
-    onUploadStart();
     setError('');
+
+    let backendReady = isBackendReady;
+    try {
+      backendReady = await onPreflightCheck();
+    } catch (err) {
+      setError('Unable to confirm local services. Please try again in a moment.');
+      onError();
+      return;
+    }
+
+    if (!backendReady) {
+      setError(backendStatusMessage || 'Local services are still starting. Please try again in a moment.');
+      onError();
+      return;
+    }
+
+    onUploadStart();
 
     try {
       // For desktop, we'll use the Tauri fs API to read the file
@@ -110,7 +149,8 @@ function UploadCard({ onResult, onUploadStart, onError, isProcessing }: UploadCa
 
       onResult(resultWithQuiz);
     } catch (err: any) {
-      setError(err.message || 'Failed to process audio. Please try again.');
+      const message = getProcessingErrorMessage(err, 'Failed to process audio. Please try again.');
+      setError(message);
       onError();
     }
   };
@@ -163,12 +203,19 @@ function UploadCard({ onResult, onUploadStart, onError, isProcessing }: UploadCa
   };
 
   return (
-    <div className="bg-white rounded-2xl shadow-lg p-8 mb-8">
+    <div className="bg-white rounded-2xl shadow-lg p-8">
+      <h2 className="text-2xl font-bold text-gray-800 mb-2 flex items-center gap-2">
+        📁 Audio File Upload
+      </h2>
+      <p className="text-gray-600 mb-4">
+        Upload a lecture recording from your computer.
+      </p>
+
       {/* Upload Area */}
       <div
         onClick={!isProcessing ? handleFileSelect : undefined}
         className={`
-          border-3 border-dashed rounded-xl p-12 text-center cursor-pointer transition-all
+          border-2 border-dashed rounded-xl p-12 text-center cursor-pointer transition-all
           ${filePath
             ? 'border-green-400 bg-green-50'
             : 'border-gray-300 bg-gray-50 hover:border-blue-400 hover:bg-blue-50'
@@ -211,6 +258,12 @@ function UploadCard({ onResult, onUploadStart, onError, isProcessing }: UploadCa
       <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
         Educational use only. Do not upload live clinical data or PHI. Not for diagnosis, treatment, or clinical decision-making.
       </div>
+
+      {!isBackendReady && (
+        <div className="mt-4 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-xs text-blue-800">
+          {backendStatusMessage || 'Local services are still starting. Please wait a moment.'}
+        </div>
+      )}
 
       {error && (
         <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
@@ -339,7 +392,7 @@ function UploadCard({ onResult, onUploadStart, onError, isProcessing }: UploadCa
       {/* Submit Button */}
       <button
         onClick={handleSubmit}
-        disabled={!filePath || isProcessing}
+        disabled={!filePath || isProcessing || !isBackendReady}
         className="w-full mt-8 bg-gradient-to-r from-blue-600 to-teal-600 text-white font-semibold py-4 px-6 rounded-xl hover:from-blue-700 hover:to-teal-700 disabled:from-gray-300 disabled:to-gray-400 disabled:cursor-not-allowed transition-all shadow-lg hover:shadow-xl transform hover:-translate-y-0.5"
       >
         {isProcessing ? (

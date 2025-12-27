@@ -25,9 +25,9 @@ echo "  Build Dir: $BUILD_DIR"
 echo ""
 
 # Step 1: Build the Tauri app first
-echo -e "${BLUE}Step 1: Building Tauri application...${NC}"
+echo -e "${BLUE}Step 1: Building Tauri application (app bundle only)...${NC}"
 cd "$DESKTOP_APP_DIR"
-npm run tauri:build
+npm run tauri:build -- --bundles app
 echo -e "${GREEN}✓ Tauri build complete${NC}"
 
 # Step 2: Verify .app exists
@@ -144,21 +144,29 @@ POSTINSTALL
 chmod +x "$PKG_DIR/scripts/postinstall"
 echo -e "${GREEN}✓ Created post-install script${NC}"
 
-# Step 5: Build the PKG
-echo -e "${BLUE}Step 4: Building PKG installer...${NC}"
+# Step 5: Create component plist to prevent bundle relocation
+echo -e "${BLUE}Step 4: Creating component plist...${NC}"
+COMPONENT_PLIST="$PKG_DIR/component.plist"
+pkgbuild --analyze --root "$PKG_DIR/payload" "$COMPONENT_PLIST"
+/usr/libexec/PlistBuddy -c "Set :0:BundleIsRelocatable false" "$COMPONENT_PLIST" 2>/dev/null || true
+echo -e "${GREEN}✓ Created component plist${NC}"
+
+# Step 6: Build the PKG
+echo -e "${BLUE}Step 5: Building PKG installer...${NC}"
 
 pkgbuild \
     --root "$PKG_DIR/payload" \
     --identifier "$BUNDLE_ID" \
     --version "$VERSION" \
     --scripts "$PKG_DIR/scripts" \
+    --component-plist "$COMPONENT_PLIST" \
     --install-location "/" \
     "$PKG_DIR/CogniScribe-component.pkg"
 
 echo -e "${GREEN}✓ Built component package${NC}"
 
-# Step 6: Create distribution XML
-echo -e "${BLUE}Step 5: Creating distribution package...${NC}"
+# Step 7: Create distribution XML
+echo -e "${BLUE}Step 6: Creating distribution package...${NC}"
 cat > "$PKG_DIR/distribution.xml" << DISTRIBUTION
 <?xml version="1.0" encoding="utf-8"?>
 <installer-gui-script minSpecVersion="2">

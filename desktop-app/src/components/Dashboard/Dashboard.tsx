@@ -16,7 +16,7 @@ interface ServiceStatus {
 
 interface DashboardProps {
   serviceStatus: ServiceStatus | null;
-  onRefreshStatus: () => void;
+  onRefreshStatus: () => Promise<ServiceStatus>;
 }
 
 function Dashboard({ serviceStatus, onRefreshStatus }: DashboardProps) {
@@ -36,6 +36,27 @@ function Dashboard({ serviceStatus, onRefreshStatus }: DashboardProps) {
 
   const handleError = () => {
     setIsProcessing(false);
+  };
+
+  const isBackendReady = Boolean(
+    serviceStatus?.ollama_running && serviceStatus?.api_running && serviceStatus?.whisper_loaded
+  );
+
+  const backendStatusMessage = !serviceStatus
+    ? 'Checking local services...'
+    : isBackendReady
+    ? ''
+    : !serviceStatus.api_running
+    ? 'Starting the local processing service...'
+    : !serviceStatus.ollama_running
+    ? 'Starting the AI summarization service...'
+    : !serviceStatus.whisper_loaded
+    ? 'Loading the transcription model...'
+    : 'Local services are still starting...';
+
+  const handlePreflightCheck = async () => {
+    const status = await onRefreshStatus();
+    return Boolean(status.ollama_running && status.api_running && status.whisper_loaded);
   };
 
   return (
@@ -97,12 +118,18 @@ function Dashboard({ serviceStatus, onRefreshStatus }: DashboardProps) {
             onUploadStart={handleUploadStart}
             onError={handleError}
             isProcessing={isProcessing}
+            isBackendReady={isBackendReady}
+            backendStatusMessage={backendStatusMessage}
+            onPreflightCheck={handlePreflightCheck}
           />
           <RecordCard
             onResult={handleResult}
             onUploadStart={handleUploadStart}
             onError={handleError}
             isProcessing={isProcessing}
+            isBackendReady={isBackendReady}
+            backendStatusMessage={backendStatusMessage}
+            onPreflightCheck={handlePreflightCheck}
           />
         </div>
 

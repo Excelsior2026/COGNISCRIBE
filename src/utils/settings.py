@@ -8,6 +8,8 @@ TEMP_AUDIO_DIR = os.environ.get("TEMP_AUDIO_DIR", "temp_processed")
 
 # File upload limits
 MAX_FILE_SIZE_MB = int(os.environ.get("MAX_FILE_SIZE_MB", "1000"))
+MAX_CHUNK_MB = int(os.environ.get("MAX_CHUNK_MB", "8"))
+MAX_CHUNK_BYTES = MAX_CHUNK_MB * 1024 * 1024
 ALLOWED_AUDIO_FORMATS = [".wav", ".mp3", ".m4a", ".flac", ".ogg", ".aac", ".wma", ".webm", ".mp4", ".mkv"]
 
 # DeepFilterNet (optional offline enhancement)
@@ -33,6 +35,18 @@ OLLAMA_TIMEOUT = int(os.environ.get("OLLAMA_TIMEOUT", "300"))
 
 # Logging
 LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO")
+
+# CORS
+_cors_origins = os.environ.get(
+    "CORS_ALLOW_ORIGINS",
+    "http://localhost,http://127.0.0.1,http://localhost:5173,http://127.0.0.1:5173",
+)
+CORS_ALLOW_ORIGINS = [origin.strip() for origin in _cors_origins.split(",") if origin.strip()]
+CORS_ALLOW_CREDENTIALS = os.environ.get("CORS_ALLOW_CREDENTIALS", "false").lower() in (
+    "true",
+    "1",
+    "yes",
+)
 
 # API settings
 API_TITLE = "CogniScribe API"

@@ -165,7 +165,7 @@ async def pipeline(
             status_code=500,
             content={
                 "success": False,
-                "error": str(e),
+                "error": "processing_failed",
                 "message": "Failed to process audio. Please check the file and try again."
             }
         )

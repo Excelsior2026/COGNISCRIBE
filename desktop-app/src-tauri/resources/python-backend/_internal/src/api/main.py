@@ -5,7 +5,13 @@ from src.api.routers.pipeline import router as pipeline_router
 from src.api.routers.healthcheck import router as health_router
 from src.api.routers.transcribe_chunk import router as transcribe_router
 from src.api.services.cleanup import cleanup_old_audio
-from src.utils.settings import API_TITLE, API_VERSION, API_DESCRIPTION
+from src.utils.settings import (
+    API_TITLE,
+    API_VERSION,
+    API_DESCRIPTION,
+    CORS_ALLOW_ORIGINS,
+    CORS_ALLOW_CREDENTIALS,
+)
 from src.utils.logger import setup_logger
 
 logger = setup_logger(__name__)
@@ -19,8 +25,8 @@ app = FastAPI(
 # Add CORS middleware for frontend access
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Configure for production
-    allow_credentials=True,
+    allow_origins=CORS_ALLOW_ORIGINS,
+    allow_credentials=CORS_ALLOW_CREDENTIALS,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -71,7 +77,7 @@ if __name__ == "__main__":
 
     # Get configuration from environment variables
     port = int(os.getenv("PORT", 8080))
-    host = os.getenv("HOST", "0.0.0.0")
+    host = os.getenv("HOST", "127.0.0.1")
     log_level = os.getenv("LOG_LEVEL", "info").lower()
 
     # Run the server

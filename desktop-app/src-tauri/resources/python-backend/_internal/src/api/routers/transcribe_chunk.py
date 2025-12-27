@@ -1,12 +1,13 @@
 """
 Streaming transcription endpoint for live preview during recording
 """
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 from pydantic import BaseModel
 from typing import Optional
 import mimetypes
 from src.api.services import transcriber
 from src.utils.logger import setup_logger
+from src.utils.settings import MAX_CHUNK_BYTES
 import tempfile
 import base64
 import os
@@ -32,8 +33,38 @@ async def transcribe_chunk(request: AudioChunkRequest):
     temp_path = None
 
     try:
+        audio_b64 = request.audio or ""
+        estimated_bytes = len(audio_b64) * 3 // 4
+        if estimated_bytes > MAX_CHUNK_BYTES:
+            return {
+                "success": False,
+                "text": "",
+                "error": "chunk_too_large",
+                "message": "Audio chunk too large for live preview.",
+                "timestamp": request.timestamp,
+            }
+
         # Decode base64 audio
-        audio_bytes = base64.b64decode(request.audio)
+        try:
+            audio_bytes = base64.b64decode(audio_b64, validate=True)
+        except Exception:
+            logger.warning("Invalid base64 audio chunk at timestamp %s", request.timestamp)
+            return {
+                "success": False,
+                "text": "",
+                "error": "invalid_audio_chunk",
+                "message": "Invalid audio chunk for live preview.",
+                "timestamp": request.timestamp,
+            }
+
+        if len(audio_bytes) > MAX_CHUNK_BYTES:
+            return {
+                "success": False,
+                "text": "",
+                "error": "chunk_too_large",
+                "message": "Audio chunk too large for live preview.",
+                "timestamp": request.timestamp,
+            }
 
         # Derive a safe suffix for ffmpeg/whisper to parse
         normalized_mime = (request.mime_type or "").split(";")[0].strip().lower()
@@ -71,7 +102,8 @@ async def transcribe_chunk(request: AudioChunkRequest):
         return {
             "success": False,
             "text": "",
-            "error": str(e),
+            "error": "chunk_processing_failed",
+            "message": "Live preview unavailable for this chunk.",
             "timestamp": request.timestamp,
         }
 

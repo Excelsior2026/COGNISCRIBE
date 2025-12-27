@@ -157,6 +157,7 @@ impl OBSDetector {
     }
 
     /// Open OBS WebSocket settings for user configuration
+    #[allow(dead_code)]
     pub fn open_websocket_settings() -> Result<()> {
         println!("Opening OBS WebSocket settings...");
 

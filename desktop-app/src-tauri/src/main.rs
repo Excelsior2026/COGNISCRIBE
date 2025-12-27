@@ -485,7 +485,7 @@ fn main() {
             obs_launch,
             obs_get_download_url,
         ])
-        .setup(|app| {
+        .setup(|_app| {
             // Perform any initial setup here
             println!("CogniScribe starting...");
             Ok(())

@@ -23,8 +23,14 @@ logger = setup_logger(__name__)
 # Ensure temp directory exists
 os.makedirs(TEMP_AUDIO_DIR, exist_ok=True)
 
+def _load_audio_segment(path: str) -> AudioSegment:
+    ext = os.path.splitext(path)[1].lower()
+    if ext == ".wav":
+        return AudioSegment.from_wav(path)
+    return AudioSegment.from_file(path)
 
-def preprocess_audio(path: str, use_deepfilter: bool = False) -> Tuple[str, Dict[str, object]]:
+
+def preprocess_audio(path: str, use_deepfilter: Optional[bool] = None) -> Tuple[str, Dict[str, object]]:
     """
     Preprocess audio file: convert to mono, normalize, reduce noise,
     with optional DeepFilterNet enhancement (offline).
@@ -50,11 +56,11 @@ def preprocess_audio(path: str, use_deepfilter: bool = False) -> Tuple[str, Dict
     try:
         # Convert to mono at 48 kHz (DeepFilterNet expects full-band audio)
         logger.debug("Converting audio to mono at 48kHz")
-        audio = AudioSegment.from_file(path).set_channels(1).set_frame_rate(48000)
+        audio = _load_audio_segment(path).set_channels(1).set_frame_rate(48000)
         audio.export(mono_48k, format="wav")
 
         enhanced_source = mono_48k
-        enable_deepfilter = use_deepfilter or DEEPFILTERNET_ENABLED
+        enable_deepfilter = DEEPFILTERNET_ENABLED if use_deepfilter is None else use_deepfilter
         if enable_deepfilter:
             enhanced_path, df_dir = run_deepfilternet(mono_48k)
             if df_dir:
@@ -68,7 +74,7 @@ def preprocess_audio(path: str, use_deepfilter: bool = False) -> Tuple[str, Dict
 
         # Resample to 16 kHz for transcription
         logger.debug("Resampling audio to 16kHz for transcription")
-        audio = AudioSegment.from_file(enhanced_source).set_channels(1).set_frame_rate(16000)
+        audio = _load_audio_segment(enhanced_source).set_channels(1).set_frame_rate(16000)
         audio.export(out, format="wav")
         
         # Load and apply noise reduction

@@ -111,6 +111,7 @@ function App() {
       onRefreshStatus={async () => {
         const status = await invoke<ServiceStatus>('get_service_status');
         setServiceStatus(status);
+        return status;
       }}
     />
   );

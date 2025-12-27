@@ -11,7 +11,7 @@ interface ServiceStatus {
 
 interface StatusBarProps {
   status: ServiceStatus | null;
-  onRefresh: () => void;
+  onRefresh: () => void | Promise<unknown>;
 }
 
 function StatusBar({ status, onRefresh }: StatusBarProps) {

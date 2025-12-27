@@ -8,9 +8,52 @@ interface RecordCardProps {
   onResult: (data: any) => void;
   onError: (error: string) => void;
   isProcessing: boolean;
+  isBackendReady: boolean;
+  backendStatusMessage: string;
+  onPreflightCheck: () => Promise<boolean>;
 }
 
-function RecordCard({ onUploadStart, onResult, onError, isProcessing }: RecordCardProps) {
+const SUBJECTS = [
+  { value: '', label: 'General' },
+  { value: 'anatomy', label: 'Anatomy' },
+  { value: 'physiology', label: 'Physiology' },
+  { value: 'pharmacology', label: 'Pharmacology' },
+  { value: 'pathophysiology', label: 'Pathophysiology' },
+  { value: 'clinical skills', label: 'Clinical Skills' },
+  { value: 'nursing fundamentals', label: 'Nursing Fundamentals' },
+  { value: 'biochemistry', label: 'Biochemistry' },
+  { value: 'microbiology', label: 'Microbiology' },
+];
+
+const getSummaryLabel = (ratio: number): string => {
+  if (ratio <= 0.05) return 'Very Brief';
+  if (ratio <= 0.1) return 'Brief';
+  if (ratio <= 0.15) return 'Balanced';
+  if (ratio <= 0.2) return 'Detailed';
+  return 'Comprehensive';
+};
+
+const getProcessingErrorMessage = (err: unknown, fallback: string) => {
+  if (err instanceof Error) {
+    const message = err.message || fallback;
+    const normalized = message.toLowerCase();
+    if (normalized.includes('load failed') || normalized.includes('failed to fetch')) {
+      return 'Could not connect to the local processing service. Make sure it is running and try again.';
+    }
+    return message;
+  }
+  return fallback;
+};
+
+function RecordCard({
+  onUploadStart,
+  onResult,
+  onError,
+  isProcessing,
+  isBackendReady,
+  backendStatusMessage,
+  onPreflightCheck,
+}: RecordCardProps) {
   const [recordingErrorMessage, setRecordingErrorMessage] = useState<string>('');
   const [subject, setSubject] = useState<string>('');
   const [quizSource, setQuizSource] = useState<'subject' | 'lecture'>('lecture');
@@ -37,15 +80,6 @@ function RecordCard({ onUploadStart, onResult, onError, isProcessing }: RecordCa
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
-  // Get summary length label
-  const getSummaryLabel = (ratio: number): string => {
-    if (ratio <= 0.05) return 'Very Brief';
-    if (ratio <= 0.10) return 'Brief';
-    if (ratio <= 0.15) return 'Standard';
-    if (ratio <= 0.20) return 'Detailed';
-    return 'Comprehensive';
-  };
-
   // Start recording handler
   const handleStartRecording = async () => {
     try {
@@ -66,6 +100,23 @@ function RecordCard({ onUploadStart, onResult, onError, isProcessing }: RecordCa
       return;
     }
 
+    let backendReady = isBackendReady;
+    try {
+      backendReady = await onPreflightCheck();
+    } catch (err) {
+      const message = 'Unable to confirm local services. Please try again in a moment.';
+      setRecordingErrorMessage(message);
+      onError(message);
+      return;
+    }
+
+    if (!backendReady) {
+      const message = backendStatusMessage || 'Local services are still starting. Please try again in a moment.';
+      setRecordingErrorMessage(message);
+      onError(message);
+      return;
+    }
+
     onUploadStart();
 
     try {
@@ -79,6 +130,9 @@ function RecordCard({ onUploadStart, onResult, onError, isProcessing }: RecordCa
       }
 
       const uint8 = new Uint8Array(fileData);
+      if (uint8.length === 0) {
+        throw new Error('Recording is empty. Please record audio before processing.');
+      }
       const blob = new Blob([uint8], { type: 'audio/wav' });
       const fileName = recordingPath.split('/').pop() || 'recording.wav';
       const fileToProcess = new File([blob], fileName, { type: 'audio/wav' });
@@ -100,11 +154,17 @@ function RecordCard({ onUploadStart, onResult, onError, isProcessing }: RecordCa
         }
       );
 
+      const result = await response.json().catch(() => null);
       if (!response.ok) {
-        throw new Error(`Server returned ${response.status}: ${response.statusText}`);
+        const message =
+          (result && (result.error || result.message)) ||
+          `Server returned ${response.status}: ${response.statusText}`;
+        throw new Error(message);
       }
 
-      const result = await response.json();
+      if (!result) {
+        throw new Error('Server returned an empty response.');
+      }
 
       if (result.success) {
         onResult(result);
@@ -115,7 +175,7 @@ function RecordCard({ onUploadStart, onResult, onError, isProcessing }: RecordCa
         onError(message);
       }
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to process recording';
+      const message = getProcessingErrorMessage(err, 'Failed to process recording. Please try again.');
       setRecordingErrorMessage(message);
       onError(message);
     }
@@ -130,22 +190,16 @@ function RecordCard({ onUploadStart, onResult, onError, isProcessing }: RecordCa
   }, [recordingError, onError]);
 
   return (
-    <div className="bg-white rounded-2xl shadow-lg p-6">
+    <div className="bg-white rounded-2xl shadow-lg p-8">
       <h2 className="text-2xl font-bold text-gray-800 mb-2 flex items-center gap-2">
-        🎙️ Studio Recording
+        🎙️ In Person Recording
       </h2>
       <p className="text-gray-600 mb-4">
-        Record audio with in-app studio processing. No extra apps required.
+        Record in-person lectures with in-app processing. No extra apps required.
       </p>
 
-      {recordingErrorMessage && (
-        <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
-          ⚠️ {recordingErrorMessage}
-        </div>
-      )}
-
       <div
-        className={`border-2 border-dashed rounded-xl p-8 mb-6 text-center transition-colors ${
+        className={`border-2 border-dashed rounded-xl p-12 text-center transition-all ${
           isRecording
             ? 'border-red-400 bg-red-50'
             : recordingPath
@@ -155,36 +209,40 @@ function RecordCard({ onUploadStart, onResult, onError, isProcessing }: RecordCa
       >
         {/* Recording Status */}
         {!isRecording && !recordingPath && (
-          <div>
-            <div className="text-5xl mb-3">🎤</div>
-            <p className="text-gray-700 font-medium mb-2">Ready to Record</p>
-            <p className="text-sm text-gray-500">
-              Click the button below to start recording your lecture
-            </p>
+          <div className="space-y-3">
+            <div className="text-5xl">🎤</div>
+            <div>
+              <p className="text-lg font-semibold text-gray-800">Ready to record</p>
+              <p className="text-sm text-gray-500 mt-1">
+                Click the button below to start recording your lecture
+              </p>
+            </div>
           </div>
         )}
 
         {isRecording && (
-          <div>
-            <div className="flex items-center justify-center gap-3 mb-3">
+          <div className="space-y-3">
+            <div className="flex items-center justify-center gap-3">
               <div className="w-4 h-4 bg-red-500 rounded-full animate-pulse"></div>
               <span className="text-2xl font-mono font-bold text-red-600">
                 {formatTime(recordingTime)}
               </span>
             </div>
-            <p className="text-gray-700 font-medium mb-2">
+            <p className="text-sm text-gray-600">
               {isPaused ? '⏸️ Paused' : '🎙️ Recording...'}
             </p>
           </div>
         )}
 
         {recordingPath && !isRecording && (
-          <div>
-            <div className="text-5xl mb-3">✅</div>
-            <p className="text-green-700 font-medium mb-2">Recording Complete!</p>
-            <p className="text-sm text-gray-600">
-              Duration: {formatTime(recordingTime)} • Ready to process
-            </p>
+          <div className="space-y-3">
+            <div className="text-5xl">✅</div>
+            <div>
+              <p className="text-lg font-semibold text-green-700">Recording Complete!</p>
+              <p className="text-sm text-gray-600 mt-1">
+                Duration: {formatTime(recordingTime)} • Ready to process
+              </p>
+            </div>
           </div>
         )}
 
@@ -238,70 +296,92 @@ function RecordCard({ onUploadStart, onResult, onError, isProcessing }: RecordCa
         </div>
       </div>
 
+      <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
+        Educational use only. Do not upload live clinical data or PHI. Not for diagnosis, treatment, or clinical decision-making.
+      </div>
+
+      {!isBackendReady && (
+        <div className="mt-4 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-xs text-blue-800">
+          {backendStatusMessage || 'Local services are still starting. Please wait a moment.'}
+        </div>
+      )}
+
+      {recordingErrorMessage && (
+        <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+          ⚠️ {recordingErrorMessage}
+        </div>
+      )}
+
       {/* Configuration (same as UploadCard) */}
-      <div className="space-y-4">
+      <div className="mt-8 space-y-6">
         {/* Subject Selection */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Subject (optional)
+          <label className="block text-sm font-semibold text-gray-700 mb-2">
+            📚 Subject (Optional)
           </label>
           <select
             value={subject}
             onChange={(e) => setSubject(e.target.value)}
             disabled={isProcessing || isRecording}
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50 disabled:bg-gray-100 disabled:cursor-not-allowed"
+            className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed"
           >
-            <option value="">General / Mixed Topics</option>
-            <option value="anatomy">Anatomy</option>
-            <option value="physiology">Physiology</option>
-            <option value="pharmacology">Pharmacology</option>
-            <option value="pathophysiology">Pathophysiology</option>
-            <option value="clinical_skills">Clinical Skills</option>
-            <option value="nursing_fundamentals">Nursing Fundamentals</option>
-            <option value="biochemistry">Biochemistry</option>
-            <option value="microbiology">Microbiology</option>
+            {SUBJECTS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
           </select>
+          <p className="text-xs text-gray-500 mt-1">Helps tailor the summary to your specific subject</p>
         </div>
 
         {/* Quiz Source */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Quiz Questions From
+          <label className="block text-sm font-semibold text-gray-700 mb-2">
+            🎯 Quiz Question Source
           </label>
           <div className="grid grid-cols-2 gap-3">
             <button
+              type="button"
               onClick={() => setQuizSource('subject')}
               disabled={isProcessing || isRecording}
-              className={`p-3 rounded-lg border-2 transition-colors text-left disabled:opacity-50 disabled:cursor-not-allowed ${
+              className={`px-4 py-3 rounded-lg border-2 transition-all text-left ${
                 quizSource === 'subject'
-                  ? 'border-blue-500 bg-blue-50'
-                  : 'border-gray-300 bg-white hover:border-blue-300'
-              }`}
+                  ? 'border-blue-500 bg-blue-50 text-blue-900'
+                  : 'border-gray-300 bg-white text-gray-700 hover:border-gray-400'
+              } ${isProcessing || isRecording ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
             >
-              <div className="text-2xl mb-1">📚</div>
-              <div className="font-semibold text-sm">Subject-Based</div>
-              <div className="text-xs text-gray-600">General study questions</div>
+              <div className="font-semibold text-sm">📚 Subject-Based</div>
+              <div className="text-xs mt-1 opacity-75">
+                General {subject || 'medical'} knowledge
+              </div>
             </button>
             <button
+              type="button"
               onClick={() => setQuizSource('lecture')}
               disabled={isProcessing || isRecording}
-              className={`p-3 rounded-lg border-2 transition-colors text-left disabled:opacity-50 disabled:cursor-not-allowed ${
+              className={`px-4 py-3 rounded-lg border-2 transition-all text-left ${
                 quizSource === 'lecture'
-                  ? 'border-teal-500 bg-teal-50'
-                  : 'border-gray-300 bg-white hover:border-teal-300'
-              }`}
+                  ? 'border-teal-500 bg-teal-50 text-teal-900'
+                  : 'border-gray-300 bg-white text-gray-700 hover:border-gray-400'
+              } ${isProcessing || isRecording ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
             >
-              <div className="text-2xl mb-1">🎯</div>
-              <div className="font-semibold text-sm">Lecture Content</div>
-              <div className="text-xs text-gray-600">From this recording</div>
+              <div className="font-semibold text-sm">🎓 Lecture Content</div>
+              <div className="text-xs mt-1 opacity-75">
+                Specific to this recording
+              </div>
             </button>
           </div>
+          <p className="text-xs text-gray-500 mt-2">
+            {quizSource === 'subject'
+              ? `Standardized questions testing ${subject || 'general'} knowledge`
+              : 'Questions generated from your lecture notes (coming soon)'}
+          </p>
         </div>
 
         {/* Summary Length */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Summary Length: {getSummaryLabel(ratio)}
+          <label className="block text-sm font-semibold text-gray-700 mb-2">
+            📝 Summary Length: {getSummaryLabel(ratio)}
           </label>
           <input
             type="range"
@@ -311,18 +391,19 @@ function RecordCard({ onUploadStart, onResult, onError, isProcessing }: RecordCa
             value={ratio}
             onChange={(e) => setRatio(parseFloat(e.target.value))}
             disabled={isProcessing || isRecording}
-            className="w-full disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer disabled:cursor-not-allowed"
           />
           <div className="flex justify-between text-xs text-gray-500 mt-1">
-            <span>Very Brief</span>
-            <span>Comprehensive</span>
+            <span>Quick</span>
+            <span>Balanced</span>
+            <span>Thorough</span>
           </div>
         </div>
 
         {/* Enhancement Toggle */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Studio Enhancement
+          <label className="block text-sm font-semibold text-gray-700 mb-2">
+            ✨ Studio Enhancement
           </label>
           <label className="flex items-center gap-3 text-sm text-gray-700">
             <input
@@ -343,34 +424,30 @@ function RecordCard({ onUploadStart, onResult, onError, isProcessing }: RecordCa
       {/* Process Button */}
       <button
         onClick={handleProcess}
-        disabled={!recordingPath || isProcessing || isRecording}
-        className="w-full mt-6 bg-gradient-to-r from-blue-600 to-teal-600 text-white font-semibold py-4 rounded-xl hover:from-blue-700 hover:to-teal-700 transition-all shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
+        disabled={!recordingPath || isProcessing || isRecording || !isBackendReady}
+        className="w-full mt-8 bg-gradient-to-r from-blue-600 to-teal-600 text-white font-semibold py-4 px-6 rounded-xl hover:from-blue-700 hover:to-teal-700 disabled:from-gray-300 disabled:to-gray-400 disabled:cursor-not-allowed transition-all shadow-lg hover:shadow-xl transform hover:-translate-y-0.5"
       >
         {isProcessing ? (
-          <div className="flex items-center justify-center gap-3">
+          <span className="flex items-center justify-center gap-3">
             <LoadingSpinner />
-            <span>Processing your recording...</span>
-            <div className="flex gap-1">
-              <span className="animate-bounce" style={{ animationDelay: '0ms' }}>
-                .
-              </span>
-              <span className="animate-bounce" style={{ animationDelay: '150ms' }}>
-                .
-              </span>
-              <span className="animate-bounce" style={{ animationDelay: '300ms' }}>
-                .
-              </span>
-            </div>
-          </div>
+            Processing your recording...
+          </span>
         ) : (
-          '🚀 Process Recording & Generate Notes'
+          <span className="flex items-center justify-center gap-2">
+            🚀 Process Recording & Generate Notes
+          </span>
         )}
       </button>
 
-      {recordingPath && !isProcessing && (
-        <p className="text-sm text-gray-500 text-center mt-3">
-          This may take a few minutes depending on recording length
-        </p>
+      {isProcessing && (
+        <div className="mt-4 text-center">
+          <p className="text-sm text-gray-600">This may take a few minutes depending on the recording length...</p>
+          <div className="mt-3 flex justify-center gap-2">
+            <span className="inline-block w-2 h-2 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></span>
+            <span className="inline-block w-2 h-2 bg-teal-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>
+            <span className="inline-block w-2 h-2 bg-purple-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></span>
+          </div>
+        </div>
       )}
     </div>
   );
