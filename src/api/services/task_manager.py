@@ -1,4 +1,4 @@
-"""Task manager for background processing with status tracking."""
+"""Background task manager for async audio processing."""
 import asyncio
 import uuid
 from datetime import datetime
@@ -11,191 +11,184 @@ logger = setup_logger(__name__)
 
 
 class TaskStatus(str, Enum):
-    """Task execution status."""
+    """Status of a background task."""
     PENDING = "pending"
+    PROCESSING = "processing"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+class ProcessingStage(str, Enum):
+    """Processing stages for pipeline."""
+    UPLOADING = "uploading"
     PREPROCESSING = "preprocessing"
     TRANSCRIBING = "transcribing"
     SUMMARIZING = "summarizing"
     COMPLETED = "completed"
-    FAILED = "failed"
+
+
+@dataclass
+class TaskProgress:
+    """Progress information for a task."""
+    stage: ProcessingStage
+    percent: int = 0
+    message: str = ""
+    updated_at: datetime = field(default_factory=datetime.utcnow)
 
 
 @dataclass
 class Task:
-    """Represents a processing task."""
+    """Background task information."""
     task_id: str
-    status: TaskStatus = TaskStatus.PENDING
-    progress: float = 0.0  # 0.0 to 1.0
+    status: TaskStatus
+    progress: TaskProgress
     created_at: datetime = field(default_factory=datetime.utcnow)
-    started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     result: Optional[Dict[str, Any]] = None
     error: Optional[str] = None
     error_code: Optional[str] = None
-    
-    # Task metadata
-    filename: Optional[str] = None
-    file_size: Optional[int] = None
-    
-    def to_dict(self) -> dict:
-        """Convert task to dictionary."""
-        return {
-            "task_id": self.task_id,
-            "status": self.status.value,
-            "progress": self.progress,
-            "created_at": self.created_at.isoformat(),
-            "started_at": self.started_at.isoformat() if self.started_at else None,
-            "completed_at": self.completed_at.isoformat() if self.completed_at else None,
-            "result": self.result,
-            "error": self.error,
-            "error_code": self.error_code,
-            "filename": self.filename,
-            "file_size": self.file_size,
-        }
 
 
 class TaskManager:
-    """Manages background processing tasks."""
+    """Manages background tasks for audio processing."""
     
-    def __init__(self, max_tasks_in_memory: int = 1000):
-        """
-        Args:
-            max_tasks_in_memory: Maximum number of tasks to keep in memory
-        """
+    def __init__(self):
         self.tasks: Dict[str, Task] = {}
-        self.max_tasks = max_tasks_in_memory
-        self._lock = asyncio.Lock()
+        self._cleanup_interval = 3600  # Clean up old tasks every hour
+        self._task_retention = 86400  # Keep tasks for 24 hours
+        self._cleanup_task: Optional[asyncio.Task] = None
     
-    async def create_task(self, filename: str = None, file_size: int = None) -> str:
-        """Create a new task.
-        
-        Args:
-            filename: Name of the file being processed
-            file_size: Size of the file in bytes
-            
-        Returns:
-            Task ID
-        """
+    def create_task(self) -> str:
+        """Create a new task and return its ID."""
         task_id = str(uuid.uuid4())
-        
-        async with self._lock:
-            # Cleanup old tasks if needed
-            if len(self.tasks) >= self.max_tasks:
-                await self._cleanup_old_tasks()
-            
-            task = Task(
-                task_id=task_id,
-                filename=filename,
-                file_size=file_size
+        task = Task(
+            task_id=task_id,
+            status=TaskStatus.PENDING,
+            progress=TaskProgress(
+                stage=ProcessingStage.UPLOADING,
+                percent=0,
+                message="Task created"
             )
-            self.tasks[task_id] = task
-        
-        logger.info(f"Created task {task_id} for file: {filename}")
+        )
+        self.tasks[task_id] = task
+        logger.info(f"Created task {task_id}")
         return task_id
     
-    async def get_task(self, task_id: str) -> Optional[Task]:
-        """Get task by ID.
-        
-        Args:
-            task_id: The task ID
-            
-        Returns:
-            Task object or None if not found
-        """
+    def get_task(self, task_id: str) -> Optional[Task]:
+        """Get task by ID."""
         return self.tasks.get(task_id)
     
-    async def update_status(
+    def update_progress(
         self,
         task_id: str,
-        status: TaskStatus,
-        progress: float = None,
-        error: str = None,
-        error_code: str = None
+        stage: ProcessingStage,
+        percent: int,
+        message: str = ""
     ) -> None:
-        """Update task status.
-        
-        Args:
-            task_id: The task ID
-            status: New status
-            progress: Optional progress (0.0 to 1.0)
-            error: Optional error message
-            error_code: Optional error code
-        """
-        task = await self.get_task(task_id)
+        """Update task progress."""
+        task = self.tasks.get(task_id)
         if not task:
-            logger.warning(f"Task {task_id} not found for status update")
+            logger.warning(f"Attempted to update non-existent task {task_id}")
             return
         
-        async with self._lock:
-            task.status = status
-            
-            if progress is not None:
-                task.progress = max(0.0, min(1.0, progress))
-            
-            if status == TaskStatus.PREPROCESSING and not task.started_at:
-                task.started_at = datetime.utcnow()
-            
-            if status == TaskStatus.COMPLETED:
-                task.completed_at = datetime.utcnow()
-                task.progress = 1.0
-            
-            if status == TaskStatus.FAILED:
-                task.completed_at = datetime.utcnow()
-                task.error = error
-                task.error_code = error_code
-        
-        logger.debug(f"Task {task_id} status updated: {status.value} ({progress:.0%})") 
+        task.status = TaskStatus.PROCESSING
+        task.progress = TaskProgress(
+            stage=stage,
+            percent=percent,
+            message=message
+        )
+        logger.debug(f"Task {task_id}: {stage.value} - {percent}% - {message}")
     
-    async def set_result(self, task_id: str, result: Dict[str, Any]) -> None:
-        """Set task result.
-        
-        Args:
-            task_id: The task ID
-            result: Result data
-        """
-        task = await self.get_task(task_id)
+    def complete_task(
+        self,
+        task_id: str,
+        result: Dict[str, Any]
+    ) -> None:
+        """Mark task as completed with result."""
+        task = self.tasks.get(task_id)
         if not task:
-            logger.warning(f"Task {task_id} not found for result update")
+            logger.warning(f"Attempted to complete non-existent task {task_id}")
             return
         
-        async with self._lock:
-            task.result = result
-            task.status = TaskStatus.COMPLETED
-            task.completed_at = datetime.utcnow()
-            task.progress = 1.0
-        
+        task.status = TaskStatus.COMPLETED
+        task.completed_at = datetime.utcnow()
+        task.result = result
+        task.progress = TaskProgress(
+            stage=ProcessingStage.COMPLETED,
+            percent=100,
+            message="Processing completed successfully"
+        )
         logger.info(f"Task {task_id} completed successfully")
     
-    async def _cleanup_old_tasks(self, keep_count: int = None) -> None:
-        """Remove oldest completed/failed tasks.
-        
-        Args:
-            keep_count: Number of tasks to keep (defaults to 75% of max)
-        """
-        if keep_count is None:
-            keep_count = int(self.max_tasks * 0.75)
-        
-        # Get completed/failed tasks sorted by completion time
-        finished_tasks = [
-            (task_id, task)
-            for task_id, task in self.tasks.items()
-            if task.status in (TaskStatus.COMPLETED, TaskStatus.FAILED)
-            and task.completed_at
-        ]
-        
-        if len(finished_tasks) <= keep_count:
+    def fail_task(
+        self,
+        task_id: str,
+        error: str,
+        error_code: Optional[str] = None
+    ) -> None:
+        """Mark task as failed with error."""
+        task = self.tasks.get(task_id)
+        if not task:
+            logger.warning(f"Attempted to fail non-existent task {task_id}")
             return
         
-        # Sort by completion time (oldest first)
-        finished_tasks.sort(key=lambda x: x[1].completed_at)
+        task.status = TaskStatus.FAILED
+        task.completed_at = datetime.utcnow()
+        task.error = error
+        task.error_code = error_code
+        logger.error(f"Task {task_id} failed: {error}")
+    
+    def cancel_task(self, task_id: str) -> bool:
+        """Cancel a pending or processing task."""
+        task = self.tasks.get(task_id)
+        if not task:
+            return False
         
-        # Remove oldest tasks
-        remove_count = len(finished_tasks) - keep_count
-        for i in range(remove_count):
-            task_id = finished_tasks[i][0]
-            del self.tasks[task_id]
+        if task.status in [TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED]:
+            return False
         
-        logger.info(f"Cleaned up {remove_count} old tasks")
+        task.status = TaskStatus.CANCELLED
+        task.completed_at = datetime.utcnow()
+        logger.info(f"Task {task_id} cancelled")
+        return True
+    
+    def cleanup_old_tasks(self) -> int:
+        """Remove tasks older than retention period."""
+        cutoff = datetime.utcnow().timestamp() - self._task_retention
+        removed = 0
+        
+        for task_id in list(self.tasks.keys()):
+            task = self.tasks[task_id]
+            if task.created_at.timestamp() < cutoff:
+                del self.tasks[task_id]
+                removed += 1
+        
+        if removed > 0:
+            logger.info(f"Cleaned up {removed} old tasks")
+        
+        return removed
+    
+    async def start_cleanup_worker(self) -> None:
+        """Start background worker for cleaning up old tasks."""
+        while True:
+            await asyncio.sleep(self._cleanup_interval)
+            try:
+                self.cleanup_old_tasks()
+            except Exception as e:
+                logger.error(f"Task cleanup failed: {str(e)}")
+    
+    def get_stats(self) -> dict:
+        """Get task manager statistics."""
+        status_counts = {status.value: 0 for status in TaskStatus}
+        for task in self.tasks.values():
+            status_counts[task.status.value] += 1
+        
+        return {
+            "total_tasks": len(self.tasks),
+            "status_breakdown": status_counts,
+            "retention_hours": self._task_retention / 3600
+        }
 
 
 # Global task manager instance
