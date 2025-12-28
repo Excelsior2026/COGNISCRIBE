@@ -1,143 +1,118 @@
-"""API key authentication middleware."""
+"""API Key authentication middleware for CLINISCRIBE."""
+import os
 import secrets
-import hashlib
 from typing import Optional
-from fastapi import Request, HTTPException
+from fastapi import Request, HTTPException, status
 from fastapi.security import APIKeyHeader
+from src.utils.errors import AuthenticationError, ErrorCode
 from src.utils.logger import setup_logger
-from src.utils.error_codes import invalid_api_key_error, missing_api_key_error
 
 logger = setup_logger(__name__)
 
-# API Key header
-api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
+# API key configuration
+API_KEY_HEADER = APIKeyHeader(name="X-API-Key", auto_error=False)
+VALID_API_KEYS = set()
 
-
-class APIKeyManager:
-    """Manages API key validation and storage."""
-    
-    def __init__(self):
-        # In production, load from database or secure storage
-        # For now, load from environment variable
-        import os
-        self.valid_keys = set()
-        
-        # Load API keys from environment (comma-separated)
-        keys_str = os.environ.get("API_KEYS", "")
-        if keys_str:
-            self.valid_keys = set(k.strip() for k in keys_str.split(",") if k.strip())
-        
-        # If no keys configured, generate a default one for development
-        if not self.valid_keys:
-            default_key = os.environ.get("DEFAULT_API_KEY", "dev-key-cliniscribe-2025")
-            self.valid_keys.add(default_key)
-            logger.warning(
-                f"No API_KEYS configured. Using default development key: {default_key}"
-            )
-    
-    def validate_key(self, api_key: str) -> bool:
-        """Validate an API key.
-        
-        Args:
-            api_key: The API key to validate
-            
-        Returns:
-            True if valid, False otherwise
-        """
-        if not api_key:
-            return False
-        
-        # Constant-time comparison to prevent timing attacks
-        return any(
-            secrets.compare_digest(api_key, valid_key) 
-            for valid_key in self.valid_keys
+# Load API keys from environment
+API_KEYS_ENV = os.getenv("CLINISCRIBE_API_KEYS", "")
+if API_KEYS_ENV:
+    VALID_API_KEYS = set(key.strip() for key in API_KEYS_ENV.split(",") if key.strip())
+    logger.info(f"Loaded {len(VALID_API_KEYS)} API keys from environment")
+else:
+    # Generate a development key if none configured
+    DEV_KEY = os.getenv("CLINISCRIBE_DEV_KEY")
+    if not DEV_KEY:
+        DEV_KEY = secrets.token_urlsafe(32)
+        logger.warning(
+            f"No API keys configured. Generated development key: {DEV_KEY}\n"
+            f"Set CLINISCRIBE_API_KEYS environment variable for production."
         )
+    VALID_API_KEYS.add(DEV_KEY)
+
+# Authentication enabled/disabled
+AUTH_ENABLED = os.getenv("CLINISCRIBE_AUTH_ENABLED", "true").lower() in ("true", "1", "yes")
+
+if not AUTH_ENABLED:
+    logger.warning("Authentication is DISABLED. This should only be used in development!")
+
+
+def verify_api_key(api_key: Optional[str]) -> bool:
+    """Verify if the provided API key is valid."""
+    if not AUTH_ENABLED:
+        return True
     
-    @staticmethod
-    def generate_key(prefix: str = "cs") -> str:
-        """Generate a new API key.
-        
-        Args:
-            prefix: Prefix for the key (default: 'cs' for CogniScribe)
-            
-        Returns:
-            A new API key
-        """
-        # Generate 32 random bytes, convert to hex
-        random_bytes = secrets.token_bytes(32)
-        key_hash = hashlib.sha256(random_bytes).hexdigest()[:32]
-        return f"{prefix}_{key_hash}"
+    if not api_key:
+        return False
+    
+    return api_key in VALID_API_KEYS
 
 
-# Global instance
-api_key_manager = APIKeyManager()
-
-
-async def verify_api_key(request: Request, api_key: Optional[str] = None) -> str:
-    """Verify API key from request headers.
+async def authenticate_request(request: Request, api_key: Optional[str] = None) -> None:
+    """Authenticate incoming request using API key.
     
     Args:
-        request: The FastAPI request object
-        api_key: Optional API key from header
-        
-    Returns:
-        The validated API key
+        request: The incoming request
+        api_key: API key from header (injected by dependency)
         
     Raises:
-        APIError: If API key is missing or invalid
+        AuthenticationError: If authentication fails
     """
-    # Check if authentication is disabled (for development)
-    import os
-    if os.environ.get("DISABLE_AUTH", "false").lower() in ("true", "1", "yes"):
-        logger.warning("Authentication is DISABLED - not recommended for production!")
-        return "auth_disabled"
+    if not AUTH_ENABLED:
+        return
     
-    # Get API key from header
+    # Check for API key in header
     if not api_key:
         api_key = request.headers.get("X-API-Key")
     
     if not api_key:
-        logger.warning(f"Missing API key for request: {request.url.path}")
-        raise missing_api_key_error()
+        logger.warning(f"Missing API key for {request.url.path} from {request.client.host}")
+        raise AuthenticationError(
+            message="API key is required. Include X-API-Key header in your request.",
+            error_code=ErrorCode.MISSING_API_KEY,
+            details={"header": "X-API-Key"}
+        )
     
-    # Validate key
-    if not api_key_manager.validate_key(api_key):
-        logger.warning(f"Invalid API key attempted: {api_key[:10]}...")
-        raise invalid_api_key_error()
+    if not verify_api_key(api_key):
+        logger.warning(f"Invalid API key attempt from {request.client.host}")
+        raise AuthenticationError(
+            message="Invalid API key provided.",
+            error_code=ErrorCode.INVALID_API_KEY
+        )
     
-    logger.debug(f"API key validated for request: {request.url.path}")
-    return api_key
+    # Successful authentication
+    logger.debug(f"Authenticated request to {request.url.path}")
 
 
-def require_api_key(func):
-    """Decorator to require API key authentication.
+def generate_api_key() -> str:
+    """Generate a new secure API key.
     
-    Usage:
-        @router.get("/protected")
-        @require_api_key
-        async def protected_endpoint(request: Request):
-            ...
+    Returns:
+        A URL-safe random string suitable for use as an API key
     """
-    from functools import wraps
+    return secrets.token_urlsafe(32)
+
+
+def add_api_key(api_key: str) -> None:
+    """Add an API key to the valid keys set.
     
-    @wraps(func)
-    async def wrapper(*args, **kwargs):
-        # Find the request object in args or kwargs
-        request = None
-        for arg in args:
-            if isinstance(arg, Request):
-                request = arg
-                break
-        if not request:
-            request = kwargs.get('request')
-        
-        if not request:
-            raise HTTPException(status_code=500, detail="Request object not found")
-        
-        # Verify API key
-        await verify_api_key(request)
-        
-        # Call original function
-        return await func(*args, **kwargs)
+    Args:
+        api_key: The API key to add
+    """
+    VALID_API_KEYS.add(api_key)
+    logger.info(f"Added new API key (total: {len(VALID_API_KEYS)})")
+
+
+def remove_api_key(api_key: str) -> bool:
+    """Remove an API key from the valid keys set.
     
-    return wrapper
+    Args:
+        api_key: The API key to remove
+        
+    Returns:
+        True if the key was removed, False if it didn't exist
+    """
+    if api_key in VALID_API_KEYS:
+        VALID_API_KEYS.remove(api_key)
+        logger.info(f"Removed API key (remaining: {len(VALID_API_KEYS)})")
+        return True
+    return False
