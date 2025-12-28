@@ -1,10 +1,36 @@
 import os
-from typing import Literal
+import sys
+from typing import Literal, Optional
+
+
+def _default_data_dir() -> str:
+    override = os.environ.get("COGNISCRIBE_DATA_DIR")
+    if override:
+        return os.path.abspath(override)
+
+    home = os.path.expanduser("~")
+    if sys.platform == "darwin":
+        return os.path.join(home, "Library", "Application Support", "com.bageltech.cogniscribe")
+    if os.name == "nt":
+        base = os.environ.get("LOCALAPPDATA") or os.environ.get("APPDATA") or home
+        return os.path.join(base, "CogniScribe")
+    return os.path.join(home, ".local", "share", "cogniscribe")
+
+
+def _resolve_data_path(env_value: Optional[str], default_name: str, base_dir: str) -> str:
+    if env_value:
+        return os.path.abspath(env_value)
+    return os.path.join(base_dir, default_name)
 
 # Audio storage settings
+_BASE_DATA_DIR = _default_data_dir()
 AUDIO_RETENTION_DAYS = int(os.environ.get("AUDIO_RETENTION_DAYS", "7"))
-AUDIO_STORAGE_DIR = os.environ.get("AUDIO_STORAGE_DIR", "audio_storage")
-TEMP_AUDIO_DIR = os.environ.get("TEMP_AUDIO_DIR", "temp_processed")
+AUDIO_STORAGE_DIR = _resolve_data_path(
+    os.environ.get("AUDIO_STORAGE_DIR"), "audio_storage", _BASE_DATA_DIR
+)
+TEMP_AUDIO_DIR = _resolve_data_path(
+    os.environ.get("TEMP_AUDIO_DIR"), "temp_processed", _BASE_DATA_DIR
+)
 
 # File upload limits
 MAX_FILE_SIZE_MB = int(os.environ.get("MAX_FILE_SIZE_MB", "1000"))

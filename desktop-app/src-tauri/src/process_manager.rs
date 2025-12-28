@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
+use std::fs;
 use std::process::{Child, Command};
 use std::time::Duration;
 use tokio::time::sleep;
@@ -23,6 +24,24 @@ pub struct ProcessManager {
     deepfilter_available: bool,
     deepfilter_binary: Option<String>,
     deepfilter_model: Option<String>,
+}
+
+fn is_child_running(child: &mut Option<Child>) -> bool {
+    if let Some(process) = child {
+        match process.try_wait() {
+            Ok(Some(_)) => {
+                *child = None;
+                false
+            }
+            Ok(None) => true,
+            Err(_) => {
+                *child = None;
+                false
+            }
+        }
+    } else {
+        false
+    }
 }
 
 fn ollama_binary_name() -> &'static str {
@@ -145,6 +164,18 @@ impl ProcessManager {
         };
 
         let mut command = Command::new(&api_path);
+
+        let audio_storage_dir = config.data_directory.clone();
+        let base_data_dir = audio_storage_dir
+            .parent()
+            .map(PathBuf::from)
+            .unwrap_or_else(|| audio_storage_dir.clone());
+        let temp_audio_dir = base_data_dir.join("temp_processed");
+        fs::create_dir_all(&audio_storage_dir)
+            .context("Failed to create audio storage directory")?;
+        fs::create_dir_all(&temp_audio_dir)
+            .context("Failed to create temp audio directory")?;
+
         command
             .env("PORT", "8080")
             .env("OLLAMA_HOST", "localhost")
@@ -152,6 +183,8 @@ impl ProcessManager {
             .env("WHISPER_MODEL", &config.whisper_model)
             .env("USE_GPU", config.use_gpu.to_string())
             .env("OLLAMA_MODEL", &config.ollama_model)
+            .env("AUDIO_STORAGE_DIR", &audio_storage_dir)
+            .env("TEMP_AUDIO_DIR", &temp_audio_dir)
             .env("LOG_LEVEL", "INFO");
 
         if let Some(df_paths) = deepfilternet_paths(&resource_base) {
@@ -265,11 +298,13 @@ impl ProcessManager {
     }
 
     /// Get current service status
-    pub fn get_status(&self) -> ServiceStatus {
+    pub fn get_status(&mut self) -> ServiceStatus {
+        let ollama_running = is_child_running(&mut self.ollama_process);
+        let api_running = is_child_running(&mut self.api_process);
         ServiceStatus {
-            ollama_running: self.ollama_process.is_some(),
-            api_running: self.api_process.is_some(),
-            whisper_loaded: self.api_process.is_some(), // Simplified check
+            ollama_running,
+            api_running,
+            whisper_loaded: api_running, // Simplified check
             deepfilter_available: self.deepfilter_available,
             deepfilter_binary: self.deepfilter_binary.clone(),
             deepfilter_model: self.deepfilter_model.clone(),
@@ -338,7 +373,7 @@ mod tests {
 
     #[test]
     fn test_service_status_default() {
-        let manager = ProcessManager::new();
+        let mut manager = ProcessManager::new();
         let status = manager.get_status();
 
         assert_eq!(status.ollama_running, false);

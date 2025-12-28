@@ -99,7 +99,7 @@ async fn stop_services(state: State<'_, AppState>) -> Result<(), String> {
 /// Get status of all services
 #[tauri::command]
 async fn get_service_status(state: State<'_, AppState>) -> Result<ServiceStatus, String> {
-    let manager = state.process_manager.lock().await;
+    let mut manager = state.process_manager.lock().await;
     Ok(manager.get_status())
 }
 
