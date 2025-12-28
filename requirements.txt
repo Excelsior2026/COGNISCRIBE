@@ -13,3 +13,6 @@ torch==2.2.2
 
 # HTTP Client
 requests==2.31.0
+
+# Security & Validation
+python-magic==0.4.27
