@@ -1,15 +1,31 @@
 import os
 import uuid
+import asyncio
 from datetime import datetime
 from typing import Optional
-from fastapi import APIRouter, UploadFile, File, HTTPException, Query
+from fastapi import APIRouter, UploadFile, File, HTTPException, Query, BackgroundTasks
 from fastapi.responses import JSONResponse
 from src.api.services import audio_preprocess, transcriber, summarizer
+from src.api.services.task_manager import task_manager, ProcessingStage
 from src.utils.settings import (
     AUDIO_STORAGE_DIR,
     MAX_FILE_SIZE_MB,
     ALLOWED_AUDIO_FORMATS,
     DEEPFILTERNET_ENABLED,
+)
+from src.utils.validation import (
+    sanitize_filename,
+    sanitize_subject,
+    validate_file_extension,
+    validate_file_size,
+    validate_ratio,
+    verify_file_signature,
+)
+from src.utils.errors import (
+    ValidationError,
+    ProcessingError,
+    ServiceUnavailableError,
+    ErrorCode,
 )
 from src.utils.logger import setup_logger
 
@@ -17,116 +33,102 @@ logger = setup_logger(__name__)
 router = APIRouter()
 
 
-def validate_audio_file(file: UploadFile) -> None:
-    """Validate uploaded audio file."""
-    # Check file extension
-    filename = os.path.basename(file.filename or "")
-    file_ext = os.path.splitext(filename)[1].lower()
-    if file_ext not in ALLOWED_AUDIO_FORMATS:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Unsupported file format '{file_ext}'. "
-                   f"Allowed formats: {', '.join(ALLOWED_AUDIO_FORMATS)}"
-        )
+def validate_audio_file(file: UploadFile) -> str:
+    """Validate uploaded audio file.
     
-    # Check file size (if available)
+    Returns:
+        Sanitized filename
+        
+    Raises:
+        ValidationError: If file is invalid
+    """
+    # Get and sanitize filename
+    filename = sanitize_filename(file.filename or "audio")
+    
+    # Validate extension
+    file_ext = validate_file_extension(filename)
+    
+    # Check file size if available
     if hasattr(file, 'size') and file.size:
-        max_bytes = MAX_FILE_SIZE_MB * 1024 * 1024
-        if file.size > max_bytes:
-            raise HTTPException(
-                status_code=413,
-                detail=f"File too large ({file.size / 1024 / 1024:.1f}MB). "
-                       f"Maximum allowed: {MAX_FILE_SIZE_MB}MB"
-            )
+        validate_file_size(file.size)
+    
+    return filename
 
 
-@router.post("/pipeline")
-async def pipeline(
-    file: UploadFile = File(..., description="Audio file to transcribe"),
-    ratio: float = Query(0.15, ge=0.05, le=1.0, description="Summary length ratio (0.05-1.0)"),
-    subject: Optional[str] = Query(None, description="Optional subject/topic (e.g., 'anatomy', 'pharmacology')"),
-    enhance: Optional[bool] = Query(
-        None,
-        description="Enable DeepFilterNet enhancement if available (defaults to server setting).",
-    ),
-):
-    """
-    Process audio file through complete pipeline:
-    1. Upload and validate
-    2. Preprocess (noise reduction, normalization, optional enhancement)
-    3. Transcribe with Whisper
-    4. Generate structured summary with Ollama
+async def process_pipeline_task(
+    task_id: str,
+    raw_path: str,
+    filename: str,
+    ratio: float,
+    subject: Optional[str],
+    use_deepfilter: bool
+) -> None:
+    """Process audio pipeline in background.
     
-    Returns transcription and formatted study notes.
+    Args:
+        task_id: Unique task identifier
+        raw_path: Path to uploaded audio file
+        filename: Original filename
+        ratio: Summary length ratio
+        subject: Optional subject for tailored summary
+        use_deepfilter: Whether to use DeepFilterNet enhancement
     """
-    logger.info(f"Pipeline request: {file.filename} (ratio={ratio}, subject={subject}, enhance={enhance})")
-    
-    raw_path = None
     clean_path = None
     
     try:
-        # Validate file
-        validate_audio_file(file)
-        
-        # Create storage directory
-        date_dir = datetime.utcnow().strftime("%Y-%m-%d")
-        storage_path = os.path.join(AUDIO_STORAGE_DIR, date_dir)
-        os.makedirs(storage_path, exist_ok=True)
-        
-        # Save uploaded file
-        safe_filename = os.path.basename(file.filename or "audio")
-        raw_path = os.path.join(storage_path, f"{uuid.uuid4()}_{safe_filename}")
-        logger.debug(f"Saving uploaded file to: {raw_path}")
-
-        max_bytes = MAX_FILE_SIZE_MB * 1024 * 1024
-        total_bytes = 0
-        with open(raw_path, "wb") as f:
-            while True:
-                chunk = await file.read(1024 * 1024)
-                if not chunk:
-                    break
-                total_bytes += len(chunk)
-                if total_bytes > max_bytes:
-                    raise HTTPException(
-                        status_code=413,
-                        detail=f"File too large ({total_bytes / 1024 / 1024:.1f}MB). "
-                               f"Maximum allowed: {MAX_FILE_SIZE_MB}MB"
-                    )
-                f.write(chunk)
-
-        await file.close()
-        
         # Stage 1: Preprocess audio
-        logger.info("Stage 1/3: Preprocessing audio...")
-        use_deepfilter = DEEPFILTERNET_ENABLED if enhance is None else enhance
-        clean_path, preprocess_meta = audio_preprocess.preprocess_audio(
+        task_manager.update_progress(
+            task_id,
+            ProcessingStage.PREPROCESSING,
+            25,
+            "Cleaning and normalizing audio"
+        )
+        
+        clean_path, preprocess_meta = await asyncio.to_thread(
+            audio_preprocess.preprocess_audio,
             raw_path,
             use_deepfilter=use_deepfilter,
         )
         
         # Stage 2: Transcribe
-        logger.info("Stage 2/3: Transcribing audio...")
-        transcript = transcriber.transcribe_audio(clean_path)
+        task_manager.update_progress(
+            task_id,
+            ProcessingStage.TRANSCRIBING,
+            50,
+            "Transcribing audio with Whisper"
+        )
+        
+        transcript = await asyncio.to_thread(
+            transcriber.transcribe_audio,
+            clean_path
+        )
         
         # Stage 3: Summarize
-        logger.info("Stage 3/3: Generating summary...")
-        summary = summarizer.generate_summary(
+        task_manager.update_progress(
+            task_id,
+            ProcessingStage.SUMMARIZING,
+            75,
+            "Generating structured study notes"
+        )
+        
+        summary = await asyncio.to_thread(
+            summarizer.generate_summary,
             transcript["text"],
             ratio=ratio,
             subject=subject
         )
         
         # Cleanup temporary processed file
-        audio_preprocess.cleanup_temp_file(clean_path)
+        if clean_path:
+            audio_preprocess.cleanup_temp_file(clean_path)
         
-        logger.info(f"Pipeline completed successfully for {file.filename}")
-        
-        return {
+        # Complete task
+        result = {
             "success": True,
             "transcript": transcript,
             "summary": summary,
             "metadata": {
-                "filename": file.filename,
+                "filename": filename,
                 "duration": transcript["duration"],
                 "language": transcript["language"],
                 "segments": len(transcript["segments"]),
@@ -137,10 +139,158 @@ async def pipeline(
             }
         }
         
-    except HTTPException:
-        # Cleanup on validation errors
+        task_manager.complete_task(task_id, result)
+        logger.info(f"Pipeline completed successfully for task {task_id}")
+        
+    except Exception as e:
+        logger.error(f"Pipeline failed for task {task_id}: {str(e)}")
+        
+        # Cleanup on failure
         if clean_path:
             audio_preprocess.cleanup_temp_file(clean_path)
+        
+        # Determine error code
+        error_code = ErrorCode.UNKNOWN_ERROR
+        if "transcrib" in str(e).lower():
+            error_code = ErrorCode.TRANSCRIPTION_FAILED
+        elif "summar" in str(e).lower() or "ollama" in str(e).lower():
+            error_code = ErrorCode.SUMMARIZATION_FAILED
+        elif "preprocess" in str(e).lower():
+            error_code = ErrorCode.PREPROCESSING_FAILED
+        
+        task_manager.fail_task(
+            task_id,
+            error=str(e),
+            error_code=error_code.value
+        )
+
+
+@router.post("/pipeline")
+async def pipeline(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(..., description="Audio file to transcribe"),
+    ratio: float = Query(0.15, ge=0.05, le=1.0, description="Summary length ratio (0.05-1.0)"),
+    subject: Optional[str] = Query(None, description="Optional subject/topic (e.g., 'anatomy', 'pharmacology')"),
+    enhance: Optional[bool] = Query(
+        None,
+        description="Enable DeepFilterNet enhancement if available (defaults to server setting).",
+    ),
+    async_mode: bool = Query(
+        True,
+        description="Process asynchronously (recommended for large files)"
+    )
+):
+    """
+    Process audio file through complete pipeline:
+    1. Upload and validate
+    2. Preprocess (noise reduction, normalization, optional enhancement)
+    3. Transcribe with Whisper
+    4. Generate structured summary with Ollama
+    
+    Returns task_id for async processing, or immediate results for sync mode.
+    """
+    logger.info(f"Pipeline request: {file.filename} (ratio={ratio}, subject={subject}, enhance={enhance}, async={async_mode})")
+    
+    raw_path = None
+    
+    try:
+        # Validate file
+        filename = validate_audio_file(file)
+        
+        # Validate and sanitize other parameters
+        ratio = validate_ratio(ratio)
+        subject = sanitize_subject(subject)
+        
+        # Create storage directory
+        date_dir = datetime.utcnow().strftime("%Y-%m-%d")
+        storage_path = os.path.join(AUDIO_STORAGE_DIR, date_dir)
+        os.makedirs(storage_path, exist_ok=True)
+        
+        # Save uploaded file
+        raw_path = os.path.join(storage_path, f"{uuid.uuid4()}_{filename}")
+        logger.debug(f"Saving uploaded file to: {raw_path}")
+
+        # Stream file to disk with size validation
+        max_bytes = MAX_FILE_SIZE_MB * 1024 * 1024
+        total_bytes = 0
+        with open(raw_path, "wb") as f:
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+                total_bytes += len(chunk)
+                if total_bytes > max_bytes:
+                    raise ValidationError(
+                        message=f"File too large ({total_bytes / 1024 / 1024:.1f}MB)",
+                        error_code=ErrorCode.FILE_TOO_LARGE,
+                        details={
+                            "size_mb": round(total_bytes / 1024 / 1024, 2),
+                            "max_mb": MAX_FILE_SIZE_MB
+                        }
+                    )
+                f.write(chunk)
+
+        await file.close()
+        
+        # Verify file signature
+        file_ext = os.path.splitext(filename)[1].lower()
+        if not verify_file_signature(raw_path, file_ext):
+            logger.warning(f"File signature mismatch for {filename}")
+            # Continue anyway, but log the warning
+        
+        # Determine enhancement setting
+        use_deepfilter = DEEPFILTERNET_ENABLED if enhance is None else enhance
+        
+        # Async mode: Create task and process in background
+        if async_mode:
+            task_id = task_manager.create_task()
+            
+            # Queue background processing
+            background_tasks.add_task(
+                process_pipeline_task,
+                task_id,
+                raw_path,
+                filename,
+                ratio,
+                subject,
+                use_deepfilter
+            )
+            
+            return {
+                "success": True,
+                "task_id": task_id,
+                "status": "processing",
+                "message": "Audio processing started. Use GET /api/pipeline/{task_id} to check status."
+            }
+        
+        # Sync mode: Process immediately (for smaller files)
+        else:
+            task_id = task_manager.create_task()
+            await process_pipeline_task(
+                task_id,
+                raw_path,
+                filename,
+                ratio,
+                subject,
+                use_deepfilter
+            )
+            
+            task = task_manager.get_task(task_id)
+            if task and task.result:
+                return task.result
+            elif task and task.error:
+                raise ProcessingError(
+                    message=task.error,
+                    error_code=ErrorCode(task.error_code) if task.error_code else ErrorCode.UNKNOWN_ERROR
+                )
+            else:
+                raise ProcessingError(
+                    message="Processing failed with unknown error",
+                    error_code=ErrorCode.UNKNOWN_ERROR
+                )
+        
+    except ValidationError:
+        # Cleanup on validation error
         if raw_path and os.path.exists(raw_path):
             try:
                 os.remove(raw_path)
@@ -149,23 +299,85 @@ async def pipeline(
         raise
         
     except Exception as e:
-        logger.error(f"Pipeline failed for {file.filename}: {str(e)}")
+        logger.error(f"Pipeline request failed: {str(e)}")
         
         # Cleanup on failure
-        if clean_path:
-            audio_preprocess.cleanup_temp_file(clean_path)
         if raw_path and os.path.exists(raw_path):
             try:
                 os.remove(raw_path)
             except Exception:
                 pass
         
-        # Return user-friendly error
-        return JSONResponse(
-            status_code=500,
-            content={
-                "success": False,
-                "error": "processing_failed",
-                "message": "Failed to process audio. Please check the file and try again."
+        # Re-raise CliniScribe exceptions
+        if isinstance(e, (ValidationError, ProcessingError, ServiceUnavailableError)):
+            raise
+        
+        # Convert to generic processing error
+        raise ProcessingError(
+            message="Failed to process audio. Please check the file and try again.",
+            error_code=ErrorCode.INTERNAL_ERROR
+        )
+
+
+@router.get("/pipeline/{task_id}")
+async def get_pipeline_status(task_id: str):
+    """
+    Get status and results of a pipeline task.
+    
+    Returns task status, progress, and results if completed.
+    """
+    task = task_manager.get_task(task_id)
+    
+    if not task:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error": "task_not_found",
+                "message": f"Task {task_id} not found"
             }
         )
+    
+    response = {
+        "task_id": task.task_id,
+        "status": task.status.value,
+        "progress": {
+            "stage": task.progress.stage.value,
+            "percent": task.progress.percent,
+            "message": task.progress.message,
+        },
+        "created_at": task.created_at.isoformat(),
+    }
+    
+    if task.completed_at:
+        response["completed_at"] = task.completed_at.isoformat()
+    
+    if task.result:
+        response["result"] = task.result
+    
+    if task.error:
+        response["error"] = task.error
+        response["error_code"] = task.error_code
+    
+    return response
+
+
+@router.delete("/pipeline/{task_id}")
+async def cancel_pipeline_task(task_id: str):
+    """
+    Cancel a pending or processing task.
+    """
+    cancelled = task_manager.cancel_task(task_id)
+    
+    if not cancelled:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "cannot_cancel",
+                "message": "Task cannot be cancelled (not found or already completed)"
+            }
+        )
+    
+    return {
+        "success": True,
+        "message": f"Task {task_id} cancelled"
+    }
