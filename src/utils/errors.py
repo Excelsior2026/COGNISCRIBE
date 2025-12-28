@@ -1,89 +1,116 @@
-"""Structured error handling for CliniScribe."""
+"""Structured error codes and exception handling for CLINISCRIBE."""
 from enum import Enum
 from typing import Optional
+from fastapi import HTTPException, status
 
 
 class ErrorCode(str, Enum):
     """Standard error codes for API responses."""
-    # File upload errors
-    FILE_TOO_LARGE = "file_too_large"
+    # Validation errors
     INVALID_FILE_FORMAT = "invalid_file_format"
-    INVALID_FILE_SIGNATURE = "invalid_file_signature"
-    FILE_UPLOAD_FAILED = "file_upload_failed"
+    FILE_TOO_LARGE = "file_too_large"
+    INVALID_PARAMETERS = "invalid_parameters"
     
     # Processing errors
     PREPROCESSING_FAILED = "preprocessing_failed"
     TRANSCRIPTION_FAILED = "transcription_failed"
     SUMMARIZATION_FAILED = "summarization_failed"
-    PIPELINE_FAILED = "pipeline_failed"
     
     # Service errors
     OLLAMA_UNAVAILABLE = "ollama_unavailable"
     OLLAMA_TIMEOUT = "ollama_timeout"
-    WHISPER_MODEL_ERROR = "whisper_model_error"
+    WHISPER_MODEL_LOAD_FAILED = "whisper_model_load_failed"
     
-    # Authentication/Authorization
-    UNAUTHORIZED = "unauthorized"
+    # Auth errors
     INVALID_API_KEY = "invalid_api_key"
+    MISSING_API_KEY = "missing_api_key"
+    
+    # Rate limiting
     RATE_LIMIT_EXCEEDED = "rate_limit_exceeded"
     
-    # General errors
+    # Generic
     INTERNAL_ERROR = "internal_error"
-    VALIDATION_ERROR = "validation_error"
+    UNKNOWN_ERROR = "unknown_error"
 
 
 class CliniScribeException(Exception):
-    """Base exception for CliniScribe errors."""
-    
+    """Base exception for CLINISCRIBE errors."""
     def __init__(
         self,
-        error_code: ErrorCode,
         message: str,
-        status_code: int = 500,
+        error_code: ErrorCode,
+        status_code: int = status.HTTP_500_INTERNAL_SERVER_ERROR,
         details: Optional[dict] = None
     ):
-        self.error_code = error_code
         self.message = message
+        self.error_code = error_code
         self.status_code = status_code
         self.details = details or {}
         super().__init__(self.message)
-    
-    def to_dict(self) -> dict:
-        """Convert exception to API response format."""
-        return {
-            "success": False,
-            "error_code": self.error_code.value,
-            "message": self.message,
-            "details": self.details
-        }
+
+    def to_http_exception(self) -> HTTPException:
+        """Convert to FastAPI HTTPException."""
+        return HTTPException(
+            status_code=self.status_code,
+            detail={
+                "error": self.error_code.value,
+                "message": self.message,
+                **self.details
+            }
+        )
 
 
-class FileValidationError(CliniScribeException):
-    """Raised when file validation fails."""
-    def __init__(self, message: str, error_code: ErrorCode = ErrorCode.VALIDATION_ERROR):
-        super().__init__(error_code, message, status_code=400)
+class ValidationError(CliniScribeException):
+    """Validation error."""
+    def __init__(self, message: str, error_code: ErrorCode, details: Optional[dict] = None):
+        super().__init__(
+            message=message,
+            error_code=error_code,
+            status_code=status.HTTP_400_BAD_REQUEST,
+            details=details
+        )
 
 
 class ProcessingError(CliniScribeException):
-    """Raised when audio processing fails."""
-    def __init__(self, message: str, error_code: ErrorCode = ErrorCode.PIPELINE_FAILED):
-        super().__init__(error_code, message, status_code=500)
+    """Processing error during pipeline execution."""
+    def __init__(self, message: str, error_code: ErrorCode, details: Optional[dict] = None):
+        super().__init__(
+            message=message,
+            error_code=error_code,
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            details=details
+        )
 
 
 class ServiceUnavailableError(CliniScribeException):
-    """Raised when external service is unavailable."""
-    def __init__(self, message: str, error_code: ErrorCode = ErrorCode.OLLAMA_UNAVAILABLE):
-        super().__init__(error_code, message, status_code=503)
+    """External service unavailable."""
+    def __init__(self, message: str, error_code: ErrorCode, details: Optional[dict] = None):
+        super().__init__(
+            message=message,
+            error_code=error_code,
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            details=details
+        )
 
 
 class AuthenticationError(CliniScribeException):
-    """Raised when authentication fails."""
-    def __init__(self, message: str = "Authentication required"):
-        super().__init__(ErrorCode.UNAUTHORIZED, message, status_code=401)
+    """Authentication error."""
+    def __init__(self, message: str, error_code: ErrorCode, details: Optional[dict] = None):
+        super().__init__(
+            message=message,
+            error_code=error_code,
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            details=details
+        )
 
 
 class RateLimitError(CliniScribeException):
-    """Raised when rate limit is exceeded."""
-    def __init__(self, message: str = "Rate limit exceeded", retry_after: Optional[int] = None):
+    """Rate limit exceeded."""
+    def __init__(self, message: str, retry_after: Optional[int] = None):
         details = {"retry_after": retry_after} if retry_after else {}
-        super().__init__(ErrorCode.RATE_LIMIT_EXCEEDED, message, status_code=429, details=details)
+        super().__init__(
+            message=message,
+            error_code=ErrorCode.RATE_LIMIT_EXCEEDED,
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            details=details
+        )
