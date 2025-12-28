@@ -1,172 +1,162 @@
-"""Rate limiting middleware."""
+"""Rate limiting middleware for CLINISCRIBE API."""
 import time
+import os
+from collections import defaultdict
 from typing import Dict, Tuple
-from collections import defaultdict, deque
 from fastapi import Request
+from src.utils.errors import RateLimitError
 from src.utils.logger import setup_logger
-from src.utils.error_codes import rate_limit_error
 
 logger = setup_logger(__name__)
 
+# Rate limit configuration
+RATE_LIMIT_ENABLED = os.getenv("CLINISCRIBE_RATE_LIMIT_ENABLED", "true").lower() in ("true", "1", "yes")
+RATE_LIMIT_REQUESTS = int(os.getenv("CLINISCRIBE_RATE_LIMIT_REQUESTS", "10"))
+RATE_LIMIT_WINDOW = int(os.getenv("CLINISCRIBE_RATE_LIMIT_WINDOW", "60"))  # seconds
 
-class RateLimiter:
-    """Token bucket rate limiter."""
-    
-    def __init__(self, requests_per_minute: int = 10, requests_per_hour: int = 100):
-        """
-        Args:
-            requests_per_minute: Maximum requests per minute per client
-            requests_per_hour: Maximum requests per hour per client
-        """
-        self.requests_per_minute = requests_per_minute
-        self.requests_per_hour = requests_per_hour
-        
-        # Track requests per client (IP or API key)
-        # Format: {client_id: deque([timestamp1, timestamp2, ...])}
-        self.request_history: Dict[str, deque] = defaultdict(lambda: deque(maxlen=requests_per_hour))
-        
-        # Track when to clear old data
-        self.last_cleanup = time.time()
-        self.cleanup_interval = 3600  # 1 hour
-    
-    def _cleanup_old_entries(self):
-        """Remove stale client data to prevent memory leaks."""
-        now = time.time()
-        if now - self.last_cleanup < self.cleanup_interval:
-            return
-        
-        # Remove clients with no requests in the last hour
-        cutoff = now - 3600
-        stale_clients = [
-            client_id
-            for client_id, history in self.request_history.items()
-            if not history or history[-1] < cutoff
-        ]
-        
-        for client_id in stale_clients:
-            del self.request_history[client_id]
-        
-        self.last_cleanup = now
-        logger.debug(f"Rate limiter cleanup: removed {len(stale_clients)} stale clients")
-    
-    def is_allowed(self, client_id: str) -> Tuple[bool, int]:
-        """Check if request is allowed for client.
-        
-        Args:
-            client_id: Identifier for the client (IP or API key)
-            
-        Returns:
-            Tuple of (is_allowed, retry_after_seconds)
-        """
-        now = time.time()
-        history = self.request_history[client_id]
-        
-        # Remove requests older than 1 hour
-        cutoff_hour = now - 3600
-        while history and history[0] < cutoff_hour:
-            history.popleft()
-        
-        # Check hourly limit
-        if len(history) >= self.requests_per_hour:
-            oldest_request = history[0]
-            retry_after = int(oldest_request + 3600 - now) + 1
-            logger.warning(f"Rate limit exceeded (hourly) for client: {client_id}")
-            return False, retry_after
-        
-        # Check per-minute limit
-        cutoff_minute = now - 60
-        recent_requests = sum(1 for ts in history if ts > cutoff_minute)
-        
-        if recent_requests >= self.requests_per_minute:
-            # Find oldest request in the last minute
-            oldest_in_minute = min(ts for ts in history if ts > cutoff_minute)
-            retry_after = int(oldest_in_minute + 60 - now) + 1
-            logger.warning(f"Rate limit exceeded (per-minute) for client: {client_id}")
-            return False, retry_after
-        
-        # Request allowed
-        history.append(now)
-        
-        # Periodic cleanup
-        self._cleanup_old_entries()
-        
-        return True, 0
-    
-    def get_client_stats(self, client_id: str) -> dict:
-        """Get rate limit statistics for a client.
-        
-        Args:
-            client_id: Identifier for the client
-            
-        Returns:
-            Dictionary with current usage statistics
-        """
-        now = time.time()
-        history = self.request_history[client_id]
-        
-        # Count requests in different time windows
-        last_minute = sum(1 for ts in history if now - ts < 60)
-        last_hour = len(history)
-        
-        return {
-            "requests_last_minute": last_minute,
-            "requests_last_hour": last_hour,
-            "limit_per_minute": self.requests_per_minute,
-            "limit_per_hour": self.requests_per_hour,
-            "remaining_minute": max(0, self.requests_per_minute - last_minute),
-            "remaining_hour": max(0, self.requests_per_hour - last_hour),
-        }
+if not RATE_LIMIT_ENABLED:
+    logger.warning("Rate limiting is DISABLED. Enable for production use.")
+
+# In-memory storage for rate limits
+# Format: {client_id: [(timestamp, request_count), ...]}
+rate_limit_store: Dict[str, list] = defaultdict(list)
 
 
-# Global rate limiter instance
-# Load limits from environment
-import os
-REQUESTS_PER_MINUTE = int(os.environ.get("RATE_LIMIT_PER_MINUTE", "10"))
-REQUESTS_PER_HOUR = int(os.environ.get("RATE_LIMIT_PER_HOUR", "100"))
-
-rate_limiter = RateLimiter(
-    requests_per_minute=REQUESTS_PER_MINUTE,
-    requests_per_hour=REQUESTS_PER_HOUR
-)
-
-
-async def check_rate_limit(request: Request, client_id: str = None) -> None:
-    """Check rate limit for incoming request.
+def get_client_identifier(request: Request) -> str:
+    """Get unique identifier for the client.
     
     Args:
-        request: FastAPI request object
-        client_id: Optional client identifier (uses IP if not provided)
+        request: The incoming request
+        
+    Returns:
+        Client identifier (IP address or API key)
+    """
+    # Prefer API key if available
+    api_key = request.headers.get("X-API-Key")
+    if api_key:
+        return f"key:{api_key[:8]}"  # Use first 8 chars for privacy
+    
+    # Fall back to IP address
+    client_host = request.client.host if request.client else "unknown"
+    
+    # Check for forwarded IP (behind proxy)
+    forwarded_for = request.headers.get("X-Forwarded-For")
+    if forwarded_for:
+        client_host = forwarded_for.split(",")[0].strip()
+    
+    return f"ip:{client_host}"
+
+
+def check_rate_limit(client_id: str) -> Tuple[bool, int, int]:
+    """Check if client has exceeded rate limit.
+    
+    Args:
+        client_id: Unique client identifier
+        
+    Returns:
+        Tuple of (is_allowed, remaining_requests, retry_after_seconds)
+    """
+    if not RATE_LIMIT_ENABLED:
+        return True, RATE_LIMIT_REQUESTS, 0
+    
+    current_time = time.time()
+    window_start = current_time - RATE_LIMIT_WINDOW
+    
+    # Get client's request history
+    requests = rate_limit_store[client_id]
+    
+    # Remove expired entries
+    requests[:] = [req_time for req_time in requests if req_time > window_start]
+    
+    # Check if limit exceeded
+    request_count = len(requests)
+    remaining = max(0, RATE_LIMIT_REQUESTS - request_count)
+    
+    if request_count >= RATE_LIMIT_REQUESTS:
+        # Calculate when the oldest request will expire
+        oldest_request = min(requests)
+        retry_after = int(oldest_request + RATE_LIMIT_WINDOW - current_time) + 1
+        return False, 0, retry_after
+    
+    # Add current request
+    requests.append(current_time)
+    
+    return True, remaining - 1, 0
+
+
+async def rate_limit_middleware(request: Request) -> None:
+    """Rate limiting middleware for API requests.
+    
+    Args:
+        request: The incoming request
         
     Raises:
-        APIError: If rate limit is exceeded
+        RateLimitError: If rate limit is exceeded
     """
-    # Check if rate limiting is disabled (for development)
-    if os.environ.get("DISABLE_RATE_LIMIT", "false").lower() in ("true", "1", "yes"):
+    if not RATE_LIMIT_ENABLED:
         return
     
-    # Get client identifier (API key or IP)
-    if not client_id:
-        # Try to get API key first
-        client_id = request.headers.get("X-API-Key")
+    # Skip rate limiting for health check endpoint
+    if request.url.path in ["/health", "/api/health"]:
+        return
+    
+    client_id = get_client_identifier(request)
+    is_allowed, remaining, retry_after = check_rate_limit(client_id)
+    
+    # Add rate limit headers to response (will be added by middleware)
+    request.state.rate_limit_limit = RATE_LIMIT_REQUESTS
+    request.state.rate_limit_remaining = remaining
+    request.state.rate_limit_reset = int(time.time()) + RATE_LIMIT_WINDOW
+    
+    if not is_allowed:
+        logger.warning(
+            f"Rate limit exceeded for {client_id}: "
+            f"{RATE_LIMIT_REQUESTS} requests per {RATE_LIMIT_WINDOW}s"
+        )
+        raise RateLimitError(
+            message=f"Rate limit exceeded. Maximum {RATE_LIMIT_REQUESTS} requests per {RATE_LIMIT_WINDOW} seconds.",
+            retry_after=retry_after
+        )
+    
+    logger.debug(f"Rate limit check passed for {client_id}: {remaining} remaining")
+
+
+def cleanup_old_entries() -> int:
+    """Clean up old rate limit entries to prevent memory bloat.
+    
+    Returns:
+        Number of entries cleaned up
+    """
+    current_time = time.time()
+    window_start = current_time - RATE_LIMIT_WINDOW
+    
+    cleaned = 0
+    for client_id in list(rate_limit_store.keys()):
+        requests = rate_limit_store[client_id]
+        original_count = len(requests)
         
-        # Fall back to IP address
-        if not client_id:
-            # Get real IP (handle proxies)
-            client_id = (
-                request.headers.get("X-Forwarded-For", "")
-                .split(",")[0]
-                .strip()
-            )
-            if not client_id:
-                client_id = request.client.host if request.client else "unknown"
+        # Remove expired entries
+        requests[:] = [req_time for req_time in requests if req_time > window_start]
+        
+        cleaned += original_count - len(requests)
+        
+        # Remove client entry if no recent requests
+        if not requests:
+            del rate_limit_store[client_id]
     
-    # Check rate limit
-    allowed, retry_after = rate_limiter.is_allowed(client_id)
+    return cleaned
+
+
+def get_rate_limit_stats() -> dict:
+    """Get current rate limit statistics.
     
-    if not allowed:
-        logger.warning(f"Rate limit exceeded for {client_id}, retry after {retry_after}s")
-        raise rate_limit_error(retry_after)
-    
-    # Add rate limit info to response headers (done in middleware)
-    stats = rate_limiter.get_client_stats(client_id)
-    request.state.rate_limit_stats = stats
+    Returns:
+        Dictionary with rate limit statistics
+    """
+    return {
+        "enabled": RATE_LIMIT_ENABLED,
+        "limit": RATE_LIMIT_REQUESTS,
+        "window_seconds": RATE_LIMIT_WINDOW,
+        "active_clients": len(rate_limit_store),
+        "total_tracked_requests": sum(len(requests) for requests in rate_limit_store.values())
+    }
