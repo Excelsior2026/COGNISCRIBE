@@ -38,7 +38,12 @@
       "http": {
         "all": false,
         "request": true,
-        "scope": ["http://localhost:8080/*", "http://localhost:11436/*"]
+        "scope": [
+          "http://localhost:8080/*",
+          "http://localhost:11436/*",
+          "http://127.0.0.1:8080/*",
+          "http://127.0.0.1:11436/*"
+        ]
       },
       "dialog": {
         "all": true
@@ -82,7 +87,7 @@
       }
     },
     "security": {
-      "csp": "default-src 'self'; connect-src 'self' http://localhost:8080 http://localhost:11436; style-src 'self' 'unsafe-inline'; img-src 'self' data:"
+      "csp": "default-src 'self'; connect-src 'self' http://localhost:8080 http://localhost:11436 http://127.0.0.1:8080 http://127.0.0.1:11436; style-src 'self' 'unsafe-inline'; img-src 'self' data:"
     },
     "updater": {
       "active": false

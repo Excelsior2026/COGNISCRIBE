@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { open } from '@tauri-apps/api/dialog';
+import { fetch as tauriFetch, Body, ResponseType } from '@tauri-apps/api/http';
 import LoadingSpinner from '../LoadingSpinner';
 import { generateMockQuiz } from '../../utils/mockQuizGenerator';
 
@@ -104,20 +105,27 @@ function UploadCard({
     try {
       // For desktop, we'll use the Tauri fs API to read the file
       // and send it to the backend
-      const response = await fetch('http://localhost:8080/api/pipeline?' + new URLSearchParams({
-        ratio: ratio.toString(),
-        ...(subject && { subject }),
-        enhance: enhanceAudio ? 'true' : 'false',
-      }), {
+      const response = await tauriFetch('http://127.0.0.1:8080/api/pipeline', {
         method: 'POST',
-        body: await createFilePayload(filePath),
+        query: {
+          ratio: ratio.toString(),
+          ...(subject ? { subject } : {}),
+          enhance: enhanceAudio ? 'true' : 'false',
+        },
+        body: await createUploadBody(filePath),
+        responseType: ResponseType.JSON,
       });
 
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        const responseData = response.data as Record<string, unknown> | null;
+        const message =
+          responseData && typeof responseData.message === 'string'
+            ? responseData.message
+            : `HTTP error! status: ${response.status}`;
+        throw new Error(message);
       }
 
-      const result = await response.json();
+      const result = response.data as Record<string, unknown>;
 
       // Generate quiz questions based on user's choice
       let quizQuestions;
@@ -155,7 +163,7 @@ function UploadCard({
     }
   };
 
-  const createFilePayload = async (path: string): Promise<FormData> => {
+  const createUploadBody = async (path: string): Promise<Body> => {
     // Read file using Tauri's fs API
     const { readBinaryFile } = await import('@tauri-apps/api/fs');
     let contents;
@@ -195,11 +203,13 @@ function UploadCard({
       }
     })();
 
-    const blob = new Blob([new Uint8Array(contents)], { type: mimeType });
-    const formData = new FormData();
-    formData.append('file', blob, fileName || 'audio.mp3');
-
-    return formData;
+    return Body.form({
+      file: {
+        file: contents,
+        fileName: fileName || 'audio.mp3',
+        mime: mimeType,
+      },
+    });
   };
 
   return (

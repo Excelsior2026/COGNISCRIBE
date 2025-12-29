@@ -171,7 +171,7 @@ async fn check_backend_health() -> Result<serde_json::Value, String> {
     let client = reqwest::Client::new();
 
     let response = client
-        .get("http://localhost:8080/api/health")
+        .get("http://127.0.0.1:8080/api/health")
         .send()
         .await
         .map_err(|e| format!("Health check failed: {}", e))?;

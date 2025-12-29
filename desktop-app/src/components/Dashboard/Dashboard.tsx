@@ -17,12 +17,14 @@ interface ServiceStatus {
 interface DashboardProps {
   serviceStatus: ServiceStatus | null;
   onRefreshStatus: () => Promise<ServiceStatus>;
+  onCheckBackendHealth: () => Promise<{ healthy: boolean; message?: string }>;
 }
 
-function Dashboard({ serviceStatus, onRefreshStatus }: DashboardProps) {
+function Dashboard({ serviceStatus, onRefreshStatus, onCheckBackendHealth }: DashboardProps) {
   const [data, setData] = useState<any>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [backendHealthError, setBackendHealthError] = useState<string | null>(null);
 
   const handleUploadStart = () => {
     setIsProcessing(true);
@@ -38,14 +40,8 @@ function Dashboard({ serviceStatus, onRefreshStatus }: DashboardProps) {
     setIsProcessing(false);
   };
 
-  const isBackendReady = Boolean(
-    serviceStatus?.ollama_running && serviceStatus?.api_running && serviceStatus?.whisper_loaded
-  );
-
-  const backendStatusMessage = !serviceStatus
+  const baseStatusMessage = !serviceStatus
     ? 'Checking local services...'
-    : isBackendReady
-    ? ''
     : !serviceStatus.api_running
     ? 'Starting the local processing service...'
     : !serviceStatus.ollama_running
@@ -54,9 +50,30 @@ function Dashboard({ serviceStatus, onRefreshStatus }: DashboardProps) {
     ? 'Loading the transcription model...'
     : 'Local services are still starting...';
 
+  const isBackendReady = Boolean(
+    serviceStatus?.ollama_running &&
+      serviceStatus?.api_running &&
+      serviceStatus?.whisper_loaded &&
+      !backendHealthError
+  );
+
+  const backendStatusMessage = backendHealthError || baseStatusMessage;
+
   const handlePreflightCheck = async () => {
     const status = await onRefreshStatus();
-    return Boolean(status.ollama_running && status.api_running && status.whisper_loaded);
+    if (!(status.ollama_running && status.api_running && status.whisper_loaded)) {
+      setBackendHealthError(baseStatusMessage);
+      return false;
+    }
+
+    const health = await onCheckBackendHealth();
+    if (!health.healthy) {
+      setBackendHealthError(health.message || 'Local processing service is not responding.');
+      return false;
+    }
+
+    setBackendHealthError(null);
+    return true;
   };
 
   return (

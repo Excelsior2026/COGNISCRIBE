@@ -13,7 +13,7 @@ edition = "2021"
 tauri-build = { version = "1.5.1", features = [] }
 
 [dependencies]
-tauri = { version = "1.5.4", features = [ "http-request", "fs-read-file", "fs-remove-dir", "fs-rename-file", "fs-write-file", "fs-copy-file", "fs-read-dir", "fs-create-dir", "fs-remove-file", "fs-exists", "dialog-all", "notification-all", "path-all", "shell-sidecar"] }
+tauri = { version = "1.5.4", features = [ "http-request", "http-multipart", "fs-read-file", "fs-remove-dir", "fs-rename-file", "fs-write-file", "fs-copy-file", "fs-read-dir", "fs-create-dir", "fs-remove-file", "fs-exists", "dialog-all", "notification-all", "path-all", "shell-sidecar"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tokio = { version = "1.35", features = ["full"] }

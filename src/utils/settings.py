@@ -65,7 +65,18 @@ LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO")
 # CORS
 _cors_origins = os.environ.get(
     "CORS_ALLOW_ORIGINS",
-    "http://localhost,http://127.0.0.1,http://localhost:5173,http://127.0.0.1:5173",
+    ",".join(
+        [
+            "http://localhost",
+            "http://127.0.0.1",
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+            "tauri://localhost",
+            "app://localhost",
+            "http://tauri.localhost",
+            "https://tauri.localhost",
+        ]
+    ),
 )
 CORS_ALLOW_ORIGINS = [origin.strip() for origin in _cors_origins.split(",") if origin.strip()]
 CORS_ALLOW_CREDENTIALS = os.environ.get("CORS_ALLOW_CREDENTIALS", "false").lower() in (

@@ -14,6 +14,18 @@ interface ServiceStatus {
   deepfilter_model: string | null;
 }
 
+interface BackendHealthResponse {
+  status?: string;
+  whisper?: {
+    loaded?: boolean;
+    error?: string;
+  };
+  ollama?: {
+    available?: boolean;
+    error?: string;
+  };
+}
+
 function App() {
   const [isFirstRun, setIsFirstRun] = useState<boolean | null>(null);
   const [servicesStarted, setServicesStarted] = useState(false);
@@ -112,6 +124,39 @@ function App() {
         const status = await invoke<ServiceStatus>('get_service_status');
         setServiceStatus(status);
         return status;
+      }}
+      onCheckBackendHealth={async () => {
+        try {
+          const health = await invoke<BackendHealthResponse>('check_backend_health');
+          if (health?.status === 'healthy') {
+            return { healthy: true };
+          }
+
+          const issues: string[] = [];
+          if (health?.whisper?.loaded === false) {
+            issues.push('Transcription model still loading');
+          }
+          if (health?.ollama?.available === false) {
+            issues.push('AI summarization service unavailable');
+          }
+          if (health?.whisper?.error) {
+            issues.push(`Whisper: ${health.whisper.error}`);
+          }
+          if (health?.ollama?.error) {
+            issues.push(`Ollama: ${health.ollama.error}`);
+          }
+
+          const message = issues.length
+            ? issues.join('. ')
+            : 'Local processing service is not responding.';
+
+          return { healthy: false, message };
+        } catch (err) {
+          return {
+            healthy: false,
+            message: 'Local processing service is not responding. Try restarting CogniScribe.',
+          };
+        }
       }}
     />
   );

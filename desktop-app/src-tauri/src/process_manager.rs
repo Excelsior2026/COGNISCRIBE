@@ -185,6 +185,10 @@ impl ProcessManager {
             .env("OLLAMA_MODEL", &config.ollama_model)
             .env("AUDIO_STORAGE_DIR", &audio_storage_dir)
             .env("TEMP_AUDIO_DIR", &temp_audio_dir)
+            .env(
+                "CORS_ALLOW_ORIGINS",
+                "http://localhost,http://127.0.0.1,http://localhost:5173,http://127.0.0.1:5173,tauri://localhost,app://localhost,http://tauri.localhost,https://tauri.localhost",
+            )
             .env("LOG_LEVEL", "INFO");
 
         if let Some(df_paths) = deepfilternet_paths(&resource_base) {
@@ -228,7 +232,7 @@ impl ProcessManager {
 
         for attempt in 1..=max_attempts {
             match client
-                .get("http://localhost:11436/api/tags")
+                .get("http://127.0.0.1:11436/api/tags")
                 .timeout(Duration::from_secs(2))
                 .send()
                 .await
@@ -255,7 +259,7 @@ impl ProcessManager {
 
         for attempt in 1..=max_attempts {
             match client
-                .get("http://localhost:8080/api/health")
+                .get("http://127.0.0.1:8080/api/health")
                 .timeout(Duration::from_secs(3))
                 .send()
                 .await

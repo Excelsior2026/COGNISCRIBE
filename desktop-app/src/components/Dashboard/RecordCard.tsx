@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { readBinaryFile } from '@tauri-apps/api/fs';
+import { fetch as tauriFetch, Body, ResponseType } from '@tauri-apps/api/http';
 import { useNativeRecorder } from '../../hooks/useNativeRecorder';
 import LoadingSpinner from '../LoadingSpinner';
 
@@ -133,32 +134,38 @@ function RecordCard({
       if (uint8.length === 0) {
         throw new Error('Recording is empty. Please record audio before processing.');
       }
-      const blob = new Blob([uint8], { type: 'audio/wav' });
       const fileName = recordingPath.split('/').pop() || 'recording.wav';
-      const fileToProcess = new File([blob], fileName, { type: 'audio/wav' });
 
-      // Send to processing pipeline
-      const formData = new FormData();
-      formData.append('file', fileToProcess);
+      const response = await tauriFetch('http://127.0.0.1:8080/api/pipeline', {
+        method: 'POST',
+        query: {
+          ratio: ratio.toString(),
+          ...(subject ? { subject } : {}),
+          enhance: enhanceAudio ? 'true' : 'false',
+        },
+        body: Body.form({
+          file: {
+            file: uint8,
+            fileName,
+            mime: 'audio/wav',
+          },
+        }),
+        responseType: ResponseType.JSON,
+      });
 
-      const response = await fetch(
-        'http://localhost:8080/api/pipeline?' +
-          new URLSearchParams({
-            ratio: ratio.toString(),
-            ...(subject && { subject }),
-            enhance: enhanceAudio ? 'true' : 'false',
-          }),
-        {
-          method: 'POST',
-          body: formData,
-        }
-      );
-
-      const result = await response.json().catch(() => null);
+      const result = (response.data as Record<string, unknown> | null) ?? null;
       if (!response.ok) {
-        const message =
-          (result && (result.error || result.message)) ||
-          `Server returned ${response.status}: ${response.statusText}`;
+        const message = (() => {
+          if (result && typeof result === 'object') {
+            if (typeof result.error === 'string') {
+              return result.error;
+            }
+            if (typeof result.message === 'string') {
+              return result.message;
+            }
+          }
+          return `Server returned ${response.status}`;
+        })();
         throw new Error(message);
       }
 
@@ -166,11 +173,11 @@ function RecordCard({
         throw new Error('Server returned an empty response.');
       }
 
-      if (result.success) {
+      if (result.success === true) {
         onResult(result);
         clearRecording();
       } else {
-        const message = result.error || 'Processing failed';
+        const message = (result.error as string | undefined) || 'Processing failed';
         setRecordingErrorMessage(message);
         onError(message);
       }
