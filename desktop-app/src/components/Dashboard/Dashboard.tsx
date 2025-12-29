@@ -25,6 +25,7 @@ function Dashboard({ serviceStatus, onRefreshStatus, onCheckBackendHealth }: Das
   const [isProcessing, setIsProcessing] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [backendHealthError, setBackendHealthError] = useState<string | null>(null);
+  const [backendHealthy, setBackendHealthy] = useState<boolean | null>(null);
 
   const handleUploadStart = () => {
     setIsProcessing(true);
@@ -50,29 +51,22 @@ function Dashboard({ serviceStatus, onRefreshStatus, onCheckBackendHealth }: Das
     ? 'Loading the transcription model...'
     : 'Local services are still starting...';
 
-  const isBackendReady = Boolean(
-    serviceStatus?.ollama_running &&
-      serviceStatus?.api_running &&
-      serviceStatus?.whisper_loaded &&
-      !backendHealthError
-  );
+  const isBackendReady = backendHealthy !== false;
 
-  const backendStatusMessage = backendHealthError || baseStatusMessage;
+  const backendStatusMessage =
+    backendHealthError || (backendHealthy === true ? '' : baseStatusMessage);
 
   const handlePreflightCheck = async () => {
-    const status = await onRefreshStatus();
-    if (!(status.ollama_running && status.api_running && status.whisper_loaded)) {
-      setBackendHealthError(baseStatusMessage);
-      return false;
-    }
-
+    await onRefreshStatus();
     const health = await onCheckBackendHealth();
     if (!health.healthy) {
       setBackendHealthError(health.message || 'Local processing service is not responding.');
+      setBackendHealthy(false);
       return false;
     }
 
     setBackendHealthError(null);
+    setBackendHealthy(true);
     return true;
   };
 

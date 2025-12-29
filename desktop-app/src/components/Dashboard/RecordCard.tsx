@@ -56,10 +56,62 @@ function RecordCard({
   onPreflightCheck,
 }: RecordCardProps) {
   const [recordingErrorMessage, setRecordingErrorMessage] = useState<string>('');
+  const [processingStatus, setProcessingStatus] = useState<string>('');
   const [subject, setSubject] = useState<string>('');
   const [quizSource, setQuizSource] = useState<'subject' | 'lecture'>('lecture');
   const [ratio, setRatio] = useState<number>(0.15);
   const [enhanceAudio, setEnhanceAudio] = useState(true);
+
+  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  const pollPipelineResult = async (taskId: string): Promise<Record<string, unknown>> => {
+    const maxAttempts = 60 * 60; // ~1 hour at 1s intervals
+
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      const response = await tauriFetch(`http://127.0.0.1:8080/api/pipeline/${taskId}`, {
+        method: 'GET',
+        responseType: ResponseType.JSON,
+      });
+
+      if (!response.ok) {
+        throw new Error(`Status check failed (HTTP ${response.status})`);
+      }
+
+      const status = response.data as Record<string, unknown>;
+      const progress = status.progress as
+        | { stage?: string; percent?: number; message?: string }
+        | undefined;
+
+      if (progress?.message) {
+        setProcessingStatus(progress.message);
+      } else if (progress?.stage) {
+        setProcessingStatus(progress.stage);
+      }
+
+      const state = status.status;
+      if (state === 'completed') {
+        const result = status.result as Record<string, unknown> | undefined;
+        if (!result) {
+          throw new Error('Processing completed but no results were returned.');
+        }
+        return result;
+      }
+
+      if (state === 'failed') {
+        const errorMessage =
+          typeof status.error === 'string' ? status.error : 'Processing failed.';
+        throw new Error(errorMessage);
+      }
+
+      if (state === 'cancelled') {
+        throw new Error('Processing was cancelled.');
+      }
+
+      await sleep(1000);
+    }
+
+    throw new Error('Processing is taking too long. Please try again.');
+  };
 
   const {
     isRecording,
@@ -101,6 +153,8 @@ function RecordCard({
       return;
     }
 
+    setProcessingStatus('');
+
     let backendReady = isBackendReady;
     try {
       backendReady = await onPreflightCheck();
@@ -119,6 +173,7 @@ function RecordCard({
     }
 
     onUploadStart();
+    setProcessingStatus('Uploading audio...');
 
     try {
       let fileData;
@@ -153,15 +208,15 @@ function RecordCard({
         responseType: ResponseType.JSON,
       });
 
-      const result = (response.data as Record<string, unknown> | null) ?? null;
+      const start = (response.data as Record<string, unknown> | null) ?? null;
       if (!response.ok) {
         const message = (() => {
-          if (result && typeof result === 'object') {
-            if (typeof result.error === 'string') {
-              return result.error;
+          if (start && typeof start === 'object') {
+            if (typeof start.error === 'string') {
+              return start.error;
             }
-            if (typeof result.message === 'string') {
-              return result.message;
+            if (typeof start.message === 'string') {
+              return start.message;
             }
           }
           return `Server returned ${response.status}`;
@@ -169,8 +224,19 @@ function RecordCard({
         throw new Error(message);
       }
 
-      if (!result) {
+      if (!start) {
         throw new Error('Server returned an empty response.');
+      }
+
+      let result: Record<string, unknown>;
+      const taskId = typeof start.task_id === 'string' ? start.task_id : null;
+      const status = typeof start.status === 'string' ? start.status : null;
+
+      if (taskId && status === 'processing') {
+        setProcessingStatus('Processing audio...');
+        result = await pollPipelineResult(taskId);
+      } else {
+        result = start;
       }
 
       if (result.success === true) {
@@ -181,9 +247,11 @@ function RecordCard({
         setRecordingErrorMessage(message);
         onError(message);
       }
+      setProcessingStatus('');
     } catch (err) {
       const message = getProcessingErrorMessage(err, 'Failed to process recording. Please try again.');
       setRecordingErrorMessage(message);
+      setProcessingStatus('');
       onError(message);
     }
   };
@@ -449,6 +517,9 @@ function RecordCard({
       {isProcessing && (
         <div className="mt-4 text-center">
           <p className="text-sm text-gray-600">This may take a few minutes depending on the recording length...</p>
+          {processingStatus && (
+            <p className="mt-2 text-xs text-gray-500">{processingStatus}</p>
+          )}
           <div className="mt-3 flex justify-center gap-2">
             <span className="inline-block w-2 h-2 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></span>
             <span className="inline-block w-2 h-2 bg-teal-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>

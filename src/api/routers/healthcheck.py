@@ -1,7 +1,7 @@
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 from src.api.services import transcriber
-from src.utils.settings import OLLAMA_URL, WHISPER_MODEL, DEVICE
+from src.utils.settings import OLLAMA_URL, OLLAMA_MODEL, WHISPER_MODEL, DEVICE
 from src.utils.logger import setup_logger
 import requests
 
@@ -43,14 +43,39 @@ async def healthcheck():
     
     # Check Ollama service
     try:
-        response = requests.get(
+        tags_response = requests.get(
             OLLAMA_URL.replace("/api/generate", "/api/tags"),
-            timeout=5
+            timeout=5,
         )
-        if response.status_code == 200:
-            status["ollama"]["available"] = True
-        else:
+
+        if tags_response.status_code != 200:
             status["status"] = "degraded"
+            status["ollama"]["error"] = f"Tags check returned {tags_response.status_code}"
+        else:
+            # Validate that the model runner can actually start (tags alone can be green
+            # even when generation fails).
+            generate_response = requests.post(
+                OLLAMA_URL,
+                json={
+                    "model": OLLAMA_MODEL,
+                    "prompt": "healthcheck",
+                    "stream": False,
+                    "options": {"num_predict": 1, "temperature": 0.0},
+                },
+                timeout=10,
+            )
+
+            if generate_response.status_code == 200:
+                status["ollama"]["available"] = True
+            else:
+                status["status"] = "degraded"
+                # Keep the error short; UI surfaces this.
+                error_body = generate_response.text.strip()
+                status["ollama"]["error"] = (
+                    f"Generate check returned {generate_response.status_code}"
+                    + (f": {error_body}" if error_body else "")
+                )
+
     except Exception as e:
         status["status"] = "degraded"
         status["ollama"]["error"] = str(e)

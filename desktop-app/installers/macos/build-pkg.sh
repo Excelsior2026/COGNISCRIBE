@@ -82,7 +82,16 @@ cat > "$PKG_DIR/scripts/postinstall" << 'POSTINSTALL'
 # Post-installation script for CogniScribe
 APP_PATH="/Applications/CogniScribe.app"
 BUNDLED_DIR="/Library/Application Support/CogniScribe/BundledModels"
-USER_HOME=$(eval echo ~$SUDO_USER)
+CONSOLE_USER=$(stat -f%Su /dev/console 2>/dev/null || true)
+if [ -z "$CONSOLE_USER" ] || [ "$CONSOLE_USER" = "root" ]; then
+    echo "⚠️  Could not detect console user; skipping per-user setup"
+    exit 0
+fi
+USER_HOME=$(eval echo "~$CONSOLE_USER")
+if [ -z "$USER_HOME" ] || [ "$USER_HOME" = "~$CONSOLE_USER" ]; then
+    echo "⚠️  Could not resolve home directory for $CONSOLE_USER; skipping per-user setup"
+    exit 0
+fi
 
 echo "Running CogniScribe post-installation..."
 
@@ -95,7 +104,7 @@ xattr -cr "$APP_PATH" 2>/dev/null || true
 
 # Create application support directory
 mkdir -p "$USER_HOME/Library/Application Support/com.bageltech.cogniscribe"
-chown -R $SUDO_USER:staff "$USER_HOME/Library/Application Support/com.bageltech.cogniscribe"
+chown -R "$CONSOLE_USER:staff" "$USER_HOME/Library/Application Support/com.bageltech.cogniscribe"
 
 # Install bundled models if available
 if [ -d "$BUNDLED_DIR" ]; then
@@ -107,7 +116,7 @@ if [ -d "$BUNDLED_DIR" ]; then
         WHISPER_CACHE="$USER_HOME/.cache/huggingface"
         mkdir -p "$WHISPER_CACHE"
         cp -R "$BUNDLED_DIR/whisper/hub" "$WHISPER_CACHE/" 2>/dev/null || true
-        chown -R $SUDO_USER:staff "$WHISPER_CACHE" 2>/dev/null || true
+        chown -R "$CONSOLE_USER:staff" "$WHISPER_CACHE" 2>/dev/null || true
         echo "  ✓ Whisper models installed"
     fi
 
@@ -117,14 +126,14 @@ if [ -d "$BUNDLED_DIR" ]; then
         OLLAMA_MODELS_DIR="$USER_HOME/.ollama/models"
         mkdir -p "$OLLAMA_MODELS_DIR"
         cp -R "$BUNDLED_DIR/ollama/"* "$OLLAMA_MODELS_DIR/" 2>/dev/null || true
-        chown -R $SUDO_USER:staff "$OLLAMA_MODELS_DIR"
+        chown -R "$CONSOLE_USER:staff" "$OLLAMA_MODELS_DIR"
         echo "  ✓ Ollama models installed"
     fi
 
     # Create marker file to indicate bundled models were installed
     echo '{"bundled_models_installed": true, "install_date": "'$(date -u +"%Y-%m-%dT%H:%M:%SZ")'"}' > \
          "$USER_HOME/Library/Application Support/com.bageltech.cogniscribe/.models-installed"
-    chown $SUDO_USER:staff "$USER_HOME/Library/Application Support/com.bageltech.cogniscribe/.models-installed"
+    chown "$CONSOLE_USER:staff" "$USER_HOME/Library/Application Support/com.bageltech.cogniscribe/.models-installed"
 
     echo "✓ Bundled models installed successfully"
     echo "  Models are ready for offline use!"

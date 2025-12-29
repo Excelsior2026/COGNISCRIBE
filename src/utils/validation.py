@@ -1,7 +1,6 @@
 """Input validation and sanitization for CLINISCRIBE."""
 import os
 import re
-import magic
 from typing import Optional
 from fastapi import UploadFile
 from src.utils.settings import MAX_FILE_SIZE_MB, ALLOWED_AUDIO_FORMATS
@@ -183,7 +182,14 @@ def verify_file_signature(file_path: str, expected_ext: str) -> bool:
         True if file signature matches extension
     """
     try:
-        # Try using python-magic if available
+        # Try using python-magic if available.
+        #
+        # Keep this import inside the function so the API can still start in
+        # environments where python-magic/libmagic aren't bundled (e.g. the
+        # PyInstaller desktop build).
+        import importlib
+
+        magic = importlib.import_module("magic")
         mime = magic.from_file(file_path, mime=True)
         
         # Check if MIME type matches expected extension
@@ -199,13 +205,18 @@ def verify_file_signature(file_path: str, expected_ext: str) -> bool:
         logger.warning(f"MIME type mismatch: expected {expected_mimes}, got {mime}")
         return False
         
-    except ImportError:
+    except ModuleNotFoundError:
         # python-magic not available, fall back to manual signature check
         logger.debug("python-magic not available, using manual signature check")
         return _check_signature_manual(file_path, expected_ext)
+    except ImportError:
+        logger.debug("python-magic not available, using manual signature check")
+        return _check_signature_manual(file_path, expected_ext)
     except Exception as e:
-        logger.error(f"Error verifying file signature: {str(e)}")
-        return False
+        # If python-magic is present but libmagic isn't available at runtime,
+        # fall back gracefully.
+        logger.warning(f"Error verifying file signature with python-magic: {str(e)}")
+        return _check_signature_manual(file_path, expected_ext)
 
 
 def _check_signature_manual(file_path: str, expected_ext: str) -> bool:
