@@ -98,7 +98,7 @@ async def security_middleware(request: Request, call_next):
         
     except CliniScribeException as exc:
         # Let CliniScribe exceptions pass through to exception handler
-        raise exc.to_http_exception()
+        raise exc
 
 
 # Include routers

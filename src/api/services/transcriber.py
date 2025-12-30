@@ -1,6 +1,7 @@
 from typing import Optional, Dict, Any
 from faster_whisper import WhisperModel
 from src.utils.settings import WHISPER_MODEL, DEVICE, COMPUTE_TYPE
+from src.utils.errors import ProcessingError, ErrorCode
 from src.utils.logger import setup_logger
 
 logger = setup_logger(__name__)
@@ -23,9 +24,12 @@ def get_model() -> WhisperModel:
             logger.info("Whisper model loaded successfully")
         except Exception as e:
             logger.error(f"Failed to load Whisper model: {str(e)}")
-            raise RuntimeError(
-                f"Could not load Whisper model '{WHISPER_MODEL}'. "
-                f"Ensure the model is downloaded or use a smaller model (tiny, base, small)."
+            raise ProcessingError(
+                message=(
+                    f"Could not load Whisper model '{WHISPER_MODEL}'. "
+                    "Ensure the model is downloaded or use a smaller model (tiny, base, small)."
+                ),
+                error_code=ErrorCode.WHISPER_MODEL_LOAD_FAILED,
             ) from e
     return _model
 
@@ -83,4 +87,7 @@ def transcribe_audio(path: str) -> Dict[str, Any]:
         
     except Exception as e:
         logger.error(f"Transcription failed: {str(e)}")
-        raise RuntimeError(f"Failed to transcribe audio: {str(e)}") from e
+        raise ProcessingError(
+            message=f"Failed to transcribe audio: {str(e)}",
+            error_code=ErrorCode.TRANSCRIPTION_FAILED,
+        ) from e

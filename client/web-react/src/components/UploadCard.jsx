@@ -152,7 +152,7 @@ export default function UploadCard({ onResult, onUploadStart, onError, isProcess
       </div>
 
       {error && (
-        <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+        <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm whitespace-pre-wrap">
           ⚠️ {error}
         </div>
       )}

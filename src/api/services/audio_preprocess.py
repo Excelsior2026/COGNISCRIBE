@@ -16,6 +16,7 @@ from src.utils.settings import (
     DEEPFILTERNET_MODEL,
     DEEPFILTERNET_USE_POSTFILTER,
 )
+from src.utils.errors import ProcessingError, ErrorCode
 from src.utils.logger import setup_logger
 
 logger = setup_logger(__name__)
@@ -95,7 +96,10 @@ def preprocess_audio(path: str, use_deepfilter: Optional[bool] = None) -> Tuple[
         # Clean up partial output if it exists
         if os.path.exists(out):
             os.remove(out)
-        raise RuntimeError(f"Failed to preprocess audio: {str(e)}") from e
+        raise ProcessingError(
+            message=f"Failed to preprocess audio: {str(e)}",
+            error_code=ErrorCode.PREPROCESSING_FAILED,
+        ) from e
     finally:
         for temp_path in temp_paths:
             if os.path.exists(temp_path):

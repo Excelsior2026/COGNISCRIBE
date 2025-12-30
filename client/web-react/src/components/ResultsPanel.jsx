@@ -1,5 +1,82 @@
 import { useState } from "react"
 
+const emptySummary = {
+  objectives: "",
+  concepts: "",
+  terms: "",
+  procedures: "",
+  summary: "",
+}
+
+const normalizeHeading = (heading) => {
+  return heading
+    .toLowerCase()
+    .replace(/&/g, "and")
+    .replace(/[^a-z0-9\s]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+}
+
+const mapHeadingToKey = (heading) => {
+  const normalized = normalizeHeading(heading)
+  if (normalized.includes("learning objective")) return "objectives"
+  if (normalized.includes("core concept")) return "concepts"
+  if (normalized.includes("clinical term") || normalized === "terms") return "terms"
+  if (normalized.includes("procedure") || normalized.includes("protocol")) return "procedures"
+  if (normalized.endsWith("summary") || normalized === "summary") return "summary"
+  return null
+}
+
+const parseSummarySections = (text) => {
+  const sections = { ...emptySummary }
+  if (!text) return sections
+
+  const matches = Array.from(text.matchAll(/^\s*#{2,4}\s*(.+?)\s*$/gm))
+  if (matches.length === 0) {
+    sections.summary = text.trim()
+    return sections
+  }
+
+  for (let i = 0; i < matches.length; i += 1) {
+    const heading = matches[i][1]
+    const key = mapHeadingToKey(heading)
+    const start = matches[i].index + matches[i][0].length
+    const end = i + 1 < matches.length ? matches[i + 1].index : text.length
+    const content = text.slice(start, end).trim()
+    if (key && content) {
+      sections[key] = content
+    }
+  }
+
+  if (!Object.values(sections).some(Boolean)) {
+    sections.summary = text.trim()
+  }
+
+  return sections
+}
+
+const getSummary = (data) => {
+  if (data?.summary && typeof data.summary === "object") {
+    return data.summary
+  }
+
+  const raw = typeof data?.summary === "string"
+    ? data.summary
+    : (typeof data?.summary_text === "string" ? data.summary_text : "")
+
+  return parseSummarySections(raw)
+}
+
+const getTranscription = (data) => {
+  if (data?.transcription) {
+    return data.transcription
+  }
+  if (data?.transcript?.text) {
+    return data.transcript.text
+  }
+  return ""
+}
+
 export default function ResultsPanel({ data }) {
   const [copiedSection, setCopiedSection] = useState(null)
   const [expandedSections, setExpandedSections] = useState({
@@ -9,6 +86,8 @@ export default function ResultsPanel({ data }) {
     procedures: true,
     summary: true,
   })
+  const summary = getSummary(data)
+  const transcription = getTranscription(data)
 
   const toggleSection = (section) => {
     setExpandedSections(prev => ({
@@ -31,23 +110,23 @@ export default function ResultsPanel({ data }) {
     let markdown = `# Study Notes\n\n`
     markdown += `**Generated:** ${new Date().toLocaleDateString()}\n\n`
     
-    if (data.summary?.objectives) {
-      markdown += `## 🎯 Learning Objectives\n\n${data.summary.objectives}\n\n`
+    if (summary.objectives) {
+      markdown += `## 🎯 Learning Objectives\n\n${summary.objectives}\n\n`
     }
-    if (data.summary?.concepts) {
-      markdown += `## 💡 Core Concepts\n\n${data.summary.concepts}\n\n`
+    if (summary.concepts) {
+      markdown += `## 💡 Core Concepts\n\n${summary.concepts}\n\n`
     }
-    if (data.summary?.terms) {
-      markdown += `## 📚 Clinical Terms & Definitions\n\n${data.summary.terms}\n\n`
+    if (summary.terms) {
+      markdown += `## 📚 Clinical Terms & Definitions\n\n${summary.terms}\n\n`
     }
-    if (data.summary?.procedures) {
-      markdown += `## ⚖️ Procedures & Protocols\n\n${data.summary.procedures}\n\n`
+    if (summary.procedures) {
+      markdown += `## ⚖️ Procedures & Protocols\n\n${summary.procedures}\n\n`
     }
-    if (data.summary?.summary) {
-      markdown += `## 📝 Summary\n\n${data.summary.summary}\n\n`
+    if (summary.summary) {
+      markdown += `## 📝 Summary\n\n${summary.summary}\n\n`
     }
-    if (data.transcription) {
-      markdown += `## 🗣️ Full Transcription\n\n${data.transcription}\n\n`
+    if (transcription) {
+      markdown += `## 🗣️ Full Transcription\n\n${transcription}\n\n`
     }
 
     const blob = new Blob([markdown], { type: 'text/markdown' })
@@ -137,7 +216,7 @@ export default function ResultsPanel({ data }) {
       <div className="space-y-4">
         <Section 
           title="Learning Objectives"
-          content={data.summary?.objectives}
+          content={summary.objectives}
           icon="🎯"
           sectionKey="objectives"
           color="blue"
@@ -145,7 +224,7 @@ export default function ResultsPanel({ data }) {
         
         <Section 
           title="Core Concepts"
-          content={data.summary?.concepts}
+          content={summary.concepts}
           icon="💡"
           sectionKey="concepts"
           color="teal"
@@ -153,7 +232,7 @@ export default function ResultsPanel({ data }) {
         
         <Section 
           title="Clinical Terms & Definitions"
-          content={data.summary?.terms}
+          content={summary.terms}
           icon="📚"
           sectionKey="terms"
           color="purple"
@@ -161,7 +240,7 @@ export default function ResultsPanel({ data }) {
         
         <Section 
           title="Procedures & Protocols"
-          content={data.summary?.procedures}
+          content={summary.procedures}
           icon="⚖️"
           sectionKey="procedures"
           color="green"
@@ -169,7 +248,7 @@ export default function ResultsPanel({ data }) {
         
         <Section 
           title="Summary"
-          content={data.summary?.summary}
+          content={summary.summary}
           icon="📝"
           sectionKey="summary"
           color="orange"
@@ -177,7 +256,7 @@ export default function ResultsPanel({ data }) {
       </div>
 
       {/* Full Transcription */}
-      {data.transcription && (
+      {transcription && (
         <div className="mt-6 pt-6 border-t border-gray-200">
           <details className="group">
             <summary className="cursor-pointer list-none flex items-center justify-between p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
@@ -192,11 +271,11 @@ export default function ResultsPanel({ data }) {
             <div className="mt-4 p-6 bg-gray-50 rounded-lg">
               <div className="bg-white rounded-lg p-4 shadow-sm max-h-96 overflow-y-auto">
                 <p className="text-gray-700 text-sm whitespace-pre-wrap leading-relaxed font-mono">
-                  {data.transcription}
+                  {transcription}
                 </p>
               </div>
               <button
-                onClick={() => copyToClipboard(data.transcription, 'transcription')}
+                onClick={() => copyToClipboard(transcription, 'transcription')}
                 className="mt-4 flex items-center gap-2 text-blue-600 hover:text-blue-700 font-medium"
               >
                 {copiedSection === 'transcription' ? '✅ Copied!' : '📋 Copy Transcription'}

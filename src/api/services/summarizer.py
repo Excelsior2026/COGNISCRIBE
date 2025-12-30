@@ -1,9 +1,63 @@
+import re
 import requests
-from typing import Optional
+from typing import Optional, Dict
 from src.utils.settings import OLLAMA_URL, OLLAMA_MODEL, OLLAMA_TIMEOUT
+from src.utils.errors import ProcessingError, ServiceUnavailableError, ErrorCode
 from src.utils.logger import setup_logger
 
 logger = setup_logger(__name__)
+
+_EMPTY_SUMMARY = {
+    "objectives": "",
+    "concepts": "",
+    "terms": "",
+    "procedures": "",
+    "summary": "",
+}
+
+
+def _normalize_heading(heading: str) -> str:
+    return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9\s]", "", heading.lower().replace("&", "and"))).strip()
+
+
+def _map_heading_to_key(heading: str) -> Optional[str]:
+    normalized = _normalize_heading(heading)
+    if "learning objective" in normalized:
+        return "objectives"
+    if "core concept" in normalized:
+        return "concepts"
+    if "clinical term" in normalized or normalized == "terms":
+        return "terms"
+    if "procedure" in normalized or "protocol" in normalized:
+        return "procedures"
+    if normalized.endswith("summary") or normalized == "summary":
+        return "summary"
+    return None
+
+
+def parse_summary_sections(text: str) -> Dict[str, str]:
+    """Parse LLM summary text into structured sections."""
+    sections = dict(_EMPTY_SUMMARY)
+    if not text:
+        return sections
+
+    matches = list(re.finditer(r"^\s*#{2,4}\s*(.+?)\s*$", text, re.MULTILINE))
+    if not matches:
+        sections["summary"] = text.strip()
+        return sections
+
+    for idx, match in enumerate(matches):
+        key = _map_heading_to_key(match.group(1))
+        start = match.end()
+        end = matches[idx + 1].start() if idx + 1 < len(matches) else len(text)
+        content = text[start:end].strip()
+        if key and content:
+            sections[key] = content
+
+    if not any(sections.values()):
+        sections["summary"] = text.strip()
+
+    return sections
 
 
 def generate_summary(text: str, ratio: float = 0.15, subject: Optional[str] = None) -> str:
@@ -19,7 +73,8 @@ def generate_summary(text: str, ratio: float = 0.15, subject: Optional[str] = No
         Formatted summary text
         
     Raises:
-        RuntimeError: If Ollama service is unavailable or summarization fails
+        ServiceUnavailableError: If Ollama is unavailable
+        ProcessingError: If summarization fails
     """
     logger.info(f"Starting summarization (ratio={ratio}, subject={subject})")
     
@@ -75,31 +130,49 @@ Transcript:
             timeout=OLLAMA_TIMEOUT
         )
         response.raise_for_status()
-        
-        result = response.json()
-        summary = result.get("response", "")
-        
-        if not summary:
-            raise ValueError("Empty response from Ollama")
-        
-        logger.info(f"Summarization completed: {len(summary)} characters")
-        return summary
-        
-    except requests.exceptions.Timeout:
+    except requests.exceptions.Timeout as exc:
         logger.error(f"Ollama request timed out after {OLLAMA_TIMEOUT}s")
-        raise RuntimeError(
-            f"Summarization timed out. The transcript may be too long. "
-            f"Try increasing OLLAMA_TIMEOUT or reducing the audio length."
-        )
-    except requests.exceptions.ConnectionError:
+        raise ServiceUnavailableError(
+            message=(
+                "Summarization timed out. The transcript may be too long. "
+                "Try increasing OLLAMA_TIMEOUT or reducing the audio length."
+            ),
+            error_code=ErrorCode.OLLAMA_TIMEOUT,
+        ) from exc
+    except requests.exceptions.ConnectionError as exc:
         logger.error(f"Could not connect to Ollama at {OLLAMA_URL}")
-        raise RuntimeError(
-            f"Cannot connect to Ollama service at {OLLAMA_URL}. "
-            f"Ensure Ollama is running and accessible."
+        raise ServiceUnavailableError(
+            message=(
+                f"Cannot connect to Ollama service at {OLLAMA_URL}. "
+                "Ensure Ollama is running and accessible."
+            ),
+            error_code=ErrorCode.OLLAMA_UNAVAILABLE,
+        ) from exc
+    except requests.exceptions.RequestException as exc:
+        status_code = getattr(exc.response, "status_code", None)
+        details = {"status_code": status_code} if status_code else None
+        logger.error(f"Ollama request failed: {str(exc)}")
+        raise ServiceUnavailableError(
+            message="Summarization service returned an error.",
+            error_code=ErrorCode.OLLAMA_UNAVAILABLE,
+            details=details,
+        ) from exc
+
+    try:
+        result = response.json()
+    except ValueError as exc:
+        logger.error(f"Invalid JSON response from Ollama: {str(exc)}")
+        raise ProcessingError(
+            message="Summarization service returned invalid JSON.",
+            error_code=ErrorCode.SUMMARIZATION_FAILED,
+        ) from exc
+
+    summary = result.get("response", "")
+    if not summary.strip():
+        raise ProcessingError(
+            message="Summarization service returned empty response.",
+            error_code=ErrorCode.SUMMARIZATION_FAILED,
         )
-    except requests.exceptions.RequestException as e:
-        logger.error(f"Ollama request failed: {str(e)}")
-        raise RuntimeError(f"Summarization failed: {str(e)}") from e
-    except Exception as e:
-        logger.error(f"Unexpected error during summarization: {str(e)}")
-        raise RuntimeError(f"Failed to generate summary: {str(e)}") from e
+
+    logger.info(f"Summarization completed: {len(summary)} characters")
+    return summary

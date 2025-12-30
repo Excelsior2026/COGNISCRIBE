@@ -22,6 +22,7 @@ from src.utils.validation import (
     verify_file_signature,
 )
 from src.utils.errors import (
+    CliniScribeException,
     ValidationError,
     ProcessingError,
     ServiceUnavailableError,
@@ -111,12 +112,13 @@ async def process_pipeline_task(
             "Generating structured study notes"
         )
         
-        summary = await asyncio.to_thread(
+        summary_text = await asyncio.to_thread(
             summarizer.generate_summary,
             transcript["text"],
             ratio=ratio,
             subject=subject
         )
+        summary_sections = summarizer.parse_summary_sections(summary_text)
         
         # Cleanup temporary processed file
         if clean_path:
@@ -125,8 +127,10 @@ async def process_pipeline_task(
         # Complete task
         result = {
             "success": True,
+            "transcription": transcript["text"],
             "transcript": transcript,
-            "summary": summary,
+            "summary": summary_sections,
+            "summary_text": summary_text,
             "metadata": {
                 "filename": filename,
                 "duration": transcript["duration"],
@@ -142,13 +146,26 @@ async def process_pipeline_task(
         task_manager.complete_task(task_id, result)
         logger.info(f"Pipeline completed successfully for task {task_id}")
         
-    except Exception as e:
-        logger.error(f"Pipeline failed for task {task_id}: {str(e)}")
-        
+    except CliniScribeException as exc:
+        logger.error(f"Pipeline failed for task {task_id}: {exc.message}")
+
         # Cleanup on failure
         if clean_path:
             audio_preprocess.cleanup_temp_file(clean_path)
-        
+
+        task_manager.fail_task(
+            task_id,
+            error=exc.message,
+            error_code=exc.error_code.value,
+        )
+
+    except Exception as e:
+        logger.error(f"Pipeline failed for task {task_id}: {str(e)}")
+
+        # Cleanup on failure
+        if clean_path:
+            audio_preprocess.cleanup_temp_file(clean_path)
+
         # Determine error code
         error_code = ErrorCode.UNKNOWN_ERROR
         if "transcrib" in str(e).lower():

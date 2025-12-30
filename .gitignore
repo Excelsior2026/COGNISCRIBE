@@ -10,3 +10,5 @@ desktop-app/installers/macos/pkg-build.*/
 # Python bundling outputs
 build/
 dist/
+docs/ud105.pdf
+docs/FeeWaiverBill.pdf
