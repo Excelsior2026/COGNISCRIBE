@@ -1,4 +1,4 @@
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080'
+const API_BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8080'
 const API_KEY = import.meta.env.VITE_API_KEY || ''
 const DEFAULT_POLL_INTERVAL_MS = 1500
 const DEFAULT_POLL_TIMEOUT_MS = 10 * 60 * 1000

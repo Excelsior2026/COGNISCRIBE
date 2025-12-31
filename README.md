@@ -145,12 +145,14 @@ export OLLAMA_MODEL=llama3.1:70b
 ## 🏗️ Docker Deployment
 
 ```bash
-# Start both API and frontend
-docker-compose up -d
-
-# API available at http://localhost:8080
-# Frontend at http://localhost:5173
+# Start both API and frontend (Docker Desktop required)
+docker compose up -d --build
 ```
+
+- API available at http://localhost:8080
+- Frontend at http://localhost:5173
+- Ollama must be running on the host (`ollama serve`) with the model pulled (`ollama pull llama3.1:8b`)
+- The Docker image bundles FFmpeg, libsndfile, and libmagic so audio processing works out of the box
 
 ## 📊 Supported Audio Formats
 
