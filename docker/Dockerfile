@@ -11,6 +11,15 @@ RUN apt-get update \
         libgomp1 \
         libmagic1 \
         libsndfile1 \
+        pkg-config \
+        libavcodec-dev \
+        libavdevice-dev \
+        libavfilter-dev \
+        libavformat-dev \
+        libpostproc-dev \
+        libavutil-dev \
+        libswresample-dev \
+        libswscale-dev \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

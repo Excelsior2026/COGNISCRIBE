@@ -16,3 +16,5 @@ requests==2.31.0
 
 # Security & Validation
 python-magic==0.4.27
+pydantic==2.5.0
+pydantic-settings==2.1.0
