@@ -26,4 +26,6 @@ sqlalchemy-stubs==0.4
 
 # Pre-commit hooks
 pre-commit==3.5.0
+
+# Security
 bandit==1.7.5
