@@ -7,13 +7,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libsndfile1-dev \
     ffmpeg \
+    libmagic1 \
+    libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements
-COPY requirements.txt .
+COPY requirements.txt constraints.txt ./
 
 # Install Python dependencies in builder
-RUN pip install --user --no-cache-dir -r requirements.txt
+RUN pip install --user --no-cache-dir -r requirements.txt -c constraints.txt
 
 # Final stage
 FROM python:3.11-slim
@@ -25,6 +27,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libsndfile1 \
     ffmpeg \
     postgresql-client \
+    libmagic1 \
+    libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy Python dependencies from builder

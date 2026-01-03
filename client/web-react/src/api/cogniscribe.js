@@ -21,6 +21,37 @@ function formatValidationDetails(details) {
   return `Validation error:\n${lines.join('\n')}`
 }
 
+function formatDetailObject(detail) {
+  if (!detail || typeof detail !== 'object') {
+    return null
+  }
+
+  const lines = []
+  if (detail.error) {
+    lines.push(`Error: ${detail.error}`)
+  }
+  if (detail.message) {
+    lines.push(detail.message)
+  }
+
+  Object.entries(detail).forEach(([key, value]) => {
+    if (key === 'error' || key === 'message') {
+      return
+    }
+    if (value === undefined) {
+      return
+    }
+    const formatted = typeof value === 'string' ? value : JSON.stringify(value)
+    lines.push(`${key}: ${formatted}`)
+  })
+
+  if (!lines.length) {
+    return null
+  }
+
+  return lines.join('\n')
+}
+
 async function parseErrorMessage(response) {
   let payload = null
   try {
@@ -44,8 +75,9 @@ async function parseErrorMessage(response) {
     if (typeof payload.detail === 'string') {
       return payload.detail
     }
-    if (payload.detail.message) {
-      return payload.detail.message
+    const detailMessage = formatDetailObject(payload.detail)
+    if (detailMessage) {
+      return detailMessage
     }
   }
 

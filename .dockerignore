@@ -10,6 +10,12 @@ __pycache__
 .github
 .venv
 venv
+client/
+desktop-app/
+docs/
+tests/
+temp_processed/
+audio_storage/
 *.egg-info
 build
 dist
