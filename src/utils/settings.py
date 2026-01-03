@@ -38,6 +38,9 @@ MAX_CHUNK_MB = int(os.environ.get("MAX_CHUNK_MB", "8"))
 MAX_CHUNK_BYTES = MAX_CHUNK_MB * 1024 * 1024
 ALLOWED_AUDIO_FORMATS = [".wav", ".mp3", ".m4a", ".flac", ".ogg", ".aac", ".wma", ".webm", ".mp4", ".mkv"]
 
+# PHI Detection (NEW)
+PHI_DETECTION_ENABLED = os.environ.get("PHI_DETECTION_ENABLED", "true").lower() in ("true", "1", "yes")
+
 # DeepFilterNet (optional offline enhancement)
 DEEPFILTERNET_ENABLED = os.environ.get("DEEPFILTERNET_ENABLED", "false").lower() in ("true", "1", "yes")
 DEEPFILTERNET_BIN = os.environ.get("DEEPFILTERNET_BIN", "deep-filter")
