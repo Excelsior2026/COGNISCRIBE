@@ -7,33 +7,21 @@ services:
     container_name: cogniscribe-ollama
     volumes:
       - ollama_data:/root/.ollama
-      - ./scripts/init-ollama.sh:/init-ollama.sh
     ports:
       - "11434:11434"
     environment:
       - OLLAMA_HOST=0.0.0.0
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 60s
-    # Uncomment below for GPU support (requires nvidia-docker)
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: 1
-    #           capabilities: [gpu]
     restart: unless-stopped
-    entrypoint: ["/bin/sh", "-c"]
-    command:
-      - |
+    command: |
+      sh -c '
         ollama serve &
-        sleep 10
-        ollama pull llama3.1:8b
-        wait
+        OLLAMA_PID=$$!
+        sleep 15
+        echo "Pulling llama3.1:8b model..."
+        ollama pull llama3.1:8b || echo "Model pull failed, will retry on first use"
+        echo "Ollama ready!"
+        wait $$OLLAMA_PID
+      '
 
   # Main API service
   api:
@@ -45,8 +33,7 @@ services:
       - "8080:8080"
     environment:
       # Ollama configuration
-      OLLAMA_HOST: ollama
-      OLLAMA_PORT: 11434
+      OLLAMA_HOST: http://ollama:11434
       OLLAMA_MODEL: llama3.1:8b
       OLLAMA_TIMEOUT: 300
       
@@ -59,38 +46,28 @@ services:
       AUDIO_RETENTION_DAYS: 7
       
       # API configuration
-      CLINISCRIBE_AUTH_ENABLED: "false"
+      COGNISCRIBE_AUTH_ENABLED: "false"
+      PHI_DETECTION_ENABLED: "true"
       LOG_LEVEL: INFO
+      
+      # Database (optional - not used yet)
+      DATABASE_URL: ""
       
       # CORS configuration
       CORS_ALLOW_ORIGINS: http://localhost:5173,http://localhost:3000
     volumes:
       - audio_storage:/app/audio_storage
       - temp_audio:/app/temp_processed
+      - ./logs:/app/logs
     depends_on:
-      ollama:
-        condition: service_healthy
+      - ollama
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 40s
-
-  # Frontend service
-  frontend:
-    build:
-      context: ./client/web-react
-      args:
-        VITE_API_URL: http://localhost:8080
-    container_name: cogniscribe-frontend
-    ports:
-      - "5173:80"
-    depends_on:
-      api:
-        condition: service_healthy
-    restart: unless-stopped
+      start_period: 60s
 
 volumes:
   # Persistent storage for Ollama models (can be large ~4-10GB)
