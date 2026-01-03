@@ -2,3 +2,6 @@
 *.dmg filter=lfs diff=lfs merge=lfs -text
 *.dylib filter=lfs diff=lfs merge=lfs -text
 *.pkg filter=lfs diff=lfs merge=lfs -text
+0ebe939e5ae14b15233791ce93355be1a329344f filter=lfs diff=lfs merge=lfs -text
+c0db394c16b5a77b761752b173517915ba2a4ec2 filter=lfs diff=lfs merge=lfs -text
+13b6bb804d202ed3a8a91aaf0be939711ea0e108 filter=lfs diff=lfs merge=lfs -text
