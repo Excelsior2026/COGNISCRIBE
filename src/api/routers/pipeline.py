@@ -12,6 +12,7 @@ from src.utils.settings import (
     MAX_FILE_SIZE_MB,
     ALLOWED_AUDIO_FORMATS,
     DEEPFILTERNET_ENABLED,
+    PHI_DETECTION_ENABLED,
 )
 from src.utils.validation import (
     sanitize_filename,
@@ -28,6 +29,7 @@ from src.utils.errors import (
     ServiceUnavailableError,
     ErrorCode,
 )
+from src.utils.phi_detector import get_phi_detector
 from src.utils.logger import setup_logger
 
 logger = setup_logger(__name__)
@@ -104,6 +106,61 @@ async def process_pipeline_task(
             clean_path
         )
         
+        # Stage 2.5: PHI Detection (if enabled)
+        if PHI_DETECTION_ENABLED:
+            task_manager.update_progress(
+                task_id,
+                ProcessingStage.TRANSCRIBING,
+                60,
+                "Scanning for protected health information"
+            )
+            
+            phi_detector = get_phi_detector()
+            phi_result = phi_detector.scan_text(transcript["text"])
+            
+            if phi_detector.should_reject(phi_result):
+                # Log PHI detection (without actual content)
+                logger.warning(
+                    f"PHI_REJECTION: Task {task_id} rejected",
+                    extra={
+                        "task_id": task_id,
+                        "filename": filename,
+                        "confidence": phi_result.confidence_score,
+                        "num_matches": len(phi_result.matches),
+                        "phi_types": list(set(m.phi_type.value for m in phi_result.matches))
+                    }
+                )
+                
+                # Cleanup files
+                if clean_path:
+                    audio_preprocess.cleanup_temp_file(clean_path)
+                if raw_path and os.path.exists(raw_path):
+                    try:
+                        os.remove(raw_path)
+                    except Exception:
+                        pass
+                
+                # Fail task with PHI error
+                raise ValidationError(
+                    message=phi_result.recommendation,
+                    error_code=ErrorCode.PHI_DETECTED,
+                    details={
+                        "confidence": round(phi_result.confidence_score, 2),
+                        "detected_types": list(set(m.phi_type.value for m in phi_result.matches)),
+                        "help_url": "https://github.com/Excelsior2026/COGNISCRIBE#educational-use-notice"
+                    }
+                )
+            
+            # Log successful PHI scan
+            logger.info(
+                f"PHI_SCAN_PASSED: Task {task_id}",
+                extra={
+                    "task_id": task_id,
+                    "confidence": phi_result.confidence_score,
+                    "low_confidence_matches": len(phi_result.matches)
+                }
+            )
+        
         # Stage 3: Summarize
         task_manager.update_progress(
             task_id,
@@ -140,6 +197,7 @@ async def process_pipeline_task(
                 "subject": subject,
                 "enhanced": preprocess_meta["enhanced"],
                 "enhancer": preprocess_meta["enhancer"],
+                "phi_scanned": PHI_DETECTION_ENABLED,
             }
         }
         
@@ -202,7 +260,10 @@ async def pipeline(
     1. Upload and validate
     2. Preprocess (noise reduction, normalization, optional enhancement)
     3. Transcribe with Whisper
-    4. Generate structured summary with Ollama
+    4. **Scan for PHI (if enabled) - rejects uploads containing protected health information**
+    5. Generate structured summary with Ollama
+    
+    **⚠️ EDUCATIONAL USE ONLY**: Do not upload live clinical recordings or patient data.
     
     Returns task_id for async processing, or immediate results for sync mode.
     """
@@ -277,7 +338,8 @@ async def pipeline(
                 "success": True,
                 "task_id": task_id,
                 "status": "processing",
-                "message": "Audio processing started. Use GET /api/pipeline/{task_id} to check status."
+                "message": "Audio processing started. Use GET /api/pipeline/{task_id} to check status.",
+                "phi_scanning_enabled": PHI_DETECTION_ENABLED
             }
         
         # Sync mode: Process immediately (for smaller files)

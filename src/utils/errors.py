@@ -1,4 +1,4 @@
-"""Structured error codes and exception handling for CLINISCRIBE."""
+"""Structured error codes and exception handling for COGNISCRIBE."""
 from enum import Enum
 from typing import Optional
 from fastapi import HTTPException, status
@@ -10,6 +10,7 @@ class ErrorCode(str, Enum):
     INVALID_FILE_FORMAT = "invalid_file_format"
     FILE_TOO_LARGE = "file_too_large"
     INVALID_PARAMETERS = "invalid_parameters"
+    PHI_DETECTED = "phi_detected"  # NEW: Protected Health Information detected
     
     # Processing errors
     PREPROCESSING_FAILED = "preprocessing_failed"
@@ -34,7 +35,7 @@ class ErrorCode(str, Enum):
 
 
 class CliniScribeException(Exception):
-    """Base exception for CLINISCRIBE errors."""
+    """Base exception for COGNISCRIBE errors."""
     def __init__(
         self,
         message: str,

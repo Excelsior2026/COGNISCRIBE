@@ -1,21 +1,87 @@
+version: '3.8'
+
 services:
+  # Ollama service for LLM inference
+  ollama:
+    image: ollama/ollama:latest
+    container_name: cogniscribe-ollama
+    volumes:
+      - ollama_data:/root/.ollama
+    ports:
+      - "11434:11434"
+    environment:
+      - OLLAMA_HOST=0.0.0.0
+    restart: unless-stopped
+    command: |
+      sh -c '
+        ollama serve &
+        OLLAMA_PID=$$!
+        sleep 15
+        echo "Pulling llama3.1:8b model..."
+        ollama pull llama3.1:8b || echo "Model pull failed, will retry on first use"
+        echo "Ollama ready!"
+        wait $$OLLAMA_PID
+      '
+
+  # Main API service
   api:
     build:
       context: .
       dockerfile: docker/Dockerfile
-    ports: ["8080:8080"]
+    container_name: cogniscribe-api
+    ports:
+      - "8080:8080"
     environment:
-      OLLAMA_HOST: host.docker.internal
-      OLLAMA_PORT: 11434
-      CLINISCRIBE_AUTH_ENABLED: "false"
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-
-  frontend:
-    ports: ["5173:80"]
+      # Ollama configuration
+      OLLAMA_HOST: http://ollama:11434
+      OLLAMA_MODEL: llama3.1:8b
+      OLLAMA_TIMEOUT: 300
+      
+      # Whisper configuration
+      WHISPER_MODEL: base
+      USE_GPU: "false"
+      
+      # File configuration
+      MAX_FILE_SIZE_MB: 1000
+      AUDIO_RETENTION_DAYS: 7
+      
+      # API configuration
+      COGNISCRIBE_AUTH_ENABLED: "false"
+      PHI_DETECTION_ENABLED: "true"
+      LOG_LEVEL: INFO
+      
+      # Database (optional - not used yet)
+      DATABASE_URL: ""
+      
+      # CORS configuration
+      CORS_ALLOW_ORIGINS: http://localhost:5173,http://localhost:3000
+    volumes:
+      - audio_storage:/app/audio_storage
+      - temp_audio:/app/temp_processed
+      - ./logs:/app/logs
     depends_on:
-      - api
-    build:
-      context: ./client/web-react
-      args:
-        VITE_API_URL: ""
+      - ollama
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+volumes:
+  # Persistent storage for Ollama models (can be large ~4-10GB)
+  ollama_data:
+    driver: local
+  
+  # Persistent storage for uploaded audio files
+  audio_storage:
+    driver: local
+  
+  # Temporary audio processing directory
+  temp_audio:
+    driver: local
+
+networks:
+  default:
+    name: cogniscribe-network
