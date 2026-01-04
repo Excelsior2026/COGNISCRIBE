@@ -1,0 +1,71 @@
+name: Integration Tests
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  schedule:
+    # Run integration tests daily at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+jobs:
+  integration:
+    name: Integration Tests with Services
+    runs-on: ubuntu-latest
+    
+    services:
+      # Future: Add Ollama container when available
+      # ollama:
+      #   image: ollama/ollama:latest
+      #   ports:
+      #     - 11434:11434
+      
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+        cache: 'pip'
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y ffmpeg libsndfile1
+
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pytest pytest-asyncio pytest-timeout
+
+    - name: Setup Ollama (mock)
+      run: |
+        # For now, we mock Ollama. In the future, use actual service.
+        echo "Ollama service would be configured here"
+
+    - name: Run integration tests
+      env:
+        OLLAMA_HOST: http://localhost:11434
+        WHISPER_MODEL: base
+        TEST_TYPE: integration
+      run: |
+        pytest tests/ \
+          -v \
+          -m "not slow" \
+          --timeout=300
+      continue-on-error: true
+
+    - name: Run end-to-end tests
+      env:
+        OLLAMA_HOST: http://localhost:11434
+        WHISPER_MODEL: base
+        TEST_TYPE: e2e
+      run: |
+        # Future: Add E2E tests when UI is ready
+        echo "End-to-end tests would run here"
+      continue-on-error: true
