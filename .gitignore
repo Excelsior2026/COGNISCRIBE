@@ -1,5 +1,11 @@
 .DS_Store
 
+# Environment files (contain secrets)
+.env
+.env.local
+.env.*.local
+*.env
+
 # Desktop app build artifacts
 desktop-app/dist/
 desktop-app/src-tauri/target/

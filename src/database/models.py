@@ -1,8 +1,13 @@
 """SQLAlchemy ORM models for COGNISCRIBE."""
 from sqlalchemy import Column, String, Integer, Float, DateTime, Boolean, Text, Enum
 from sqlalchemy.ext.declarative import declarative_base
-from datetime import datetime
+from datetime import datetime, timezone
 import enum
+
+
+def utc_now():
+    """Get current UTC datetime (timezone-aware)."""
+    return datetime.now(timezone.utc)
 
 Base = declarative_base()
 
@@ -16,8 +21,8 @@ class User(Base):
     email = Column(String(255), unique=True, index=True, nullable=False)
     hashed_password = Column(String(255), nullable=False)
     is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
     
     def __repr__(self):
         return f"<User(username='{self.username}', email='{self.email}')>"
@@ -51,8 +56,8 @@ class TranscriptionJob(Base):
     
     # Metadata
     language_detected = Column(String(10), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, index=True)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now, index=True)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
     
     def __repr__(self):
         return f"<TranscriptionJob(id='{self.id}', status='{self.status}')>"
@@ -72,7 +77,7 @@ class AuditLog(Base):
     status = Column(String(20), nullable=False)  # success, failure
     details = Column(Text, nullable=True)
     error_message = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    created_at = Column(DateTime, default=utc_now, index=True)
     
     def __repr__(self):
         return f"<AuditLog(action='{self.action}', status='{self.status}')>"
@@ -98,8 +103,8 @@ class UsageStatistics(Base):
     # Cost tracking (if implementing billing)
     estimated_cost_cents = Column(Integer, default=0)  # in cents
     
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
     
     def __repr__(self):
         return f"<UsageStatistics(user_id='{self.user_id}', month='{self.month}')>"

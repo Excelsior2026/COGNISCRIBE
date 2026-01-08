@@ -122,14 +122,62 @@ Transcript:
         }
     }
     
-    try:
-        logger.debug(f"Sending request to Ollama at {OLLAMA_URL}")
-        response = requests.post(
-            OLLAMA_URL,
-            json=payload,
-            timeout=OLLAMA_TIMEOUT
-        )
-        response.raise_for_status()
+    # Retry configuration for Ollama requests
+    max_retries = 3
+    retry_delay = 2.0
+    
+    last_exception = None
+    for attempt in range(1, max_retries + 1):
+        try:
+            logger.debug(f"Sending request to Ollama at {OLLAMA_URL} (attempt {attempt}/{max_retries})")
+            response = requests.post(
+                OLLAMA_URL,
+                json=payload,
+                timeout=OLLAMA_TIMEOUT
+            )
+            response.raise_for_status()
+            break  # Success, exit retry loop
+        except requests.exceptions.Timeout as exc:
+            last_exception = exc
+            if attempt < max_retries:
+                logger.warning(
+                    f"Ollama request timed out (attempt {attempt}/{max_retries}), "
+                    f"retrying in {retry_delay}s..."
+                )
+                import time
+                time.sleep(retry_delay)
+                retry_delay *= 2  # Exponential backoff
+                continue
+            # Last attempt failed
+            logger.error(f"Ollama request timed out after {max_retries} attempts")
+            raise ServiceUnavailableError(
+                message=(
+                    "Summarization timed out after multiple attempts. "
+                    "The transcript may be too long or Ollama is overloaded. "
+                    "Try increasing OLLAMA_TIMEOUT or reducing the audio length."
+                ),
+                error_code=ErrorCode.OLLAMA_TIMEOUT,
+            ) from exc
+        except requests.exceptions.ConnectionError as exc:
+            last_exception = exc
+            if attempt < max_retries:
+                logger.warning(
+                    f"Ollama connection failed (attempt {attempt}/{max_retries}), "
+                    f"retrying in {retry_delay}s..."
+                )
+                import time
+                time.sleep(retry_delay)
+                retry_delay *= 2
+                continue
+            # Last attempt failed
+            logger.error(f"Could not connect to Ollama at {OLLAMA_URL} after {max_retries} attempts")
+            raise ServiceUnavailableError(
+                message=(
+                    f"Cannot connect to Ollama service at {OLLAMA_URL} after {max_retries} attempts. "
+                    "Ensure Ollama is running and accessible."
+                ),
+                error_code=ErrorCode.OLLAMA_UNAVAILABLE,
+            ) from exc
     except requests.exceptions.Timeout as exc:
         logger.error(f"Ollama request timed out after {OLLAMA_TIMEOUT}s")
         raise ServiceUnavailableError(

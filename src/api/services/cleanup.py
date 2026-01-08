@@ -1,6 +1,6 @@
 import os
 import shutil
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from src.utils.settings import AUDIO_STORAGE_DIR, AUDIO_RETENTION_DAYS
 from src.utils.logger import setup_logger
 
@@ -18,7 +18,7 @@ def cleanup_old_audio() -> None:
         logger.warning(f"Audio storage directory does not exist: {AUDIO_STORAGE_DIR}")
         return
     
-    cutoff = datetime.utcnow() - timedelta(days=AUDIO_RETENTION_DAYS)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=AUDIO_RETENTION_DAYS)
     removed_count = 0
     error_count = 0
     

@@ -1,7 +1,7 @@
 import os
 import uuid
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from fastapi import APIRouter, UploadFile, File, HTTPException, Query, BackgroundTasks
 from fastapi.responses import JSONResponse
@@ -22,6 +22,7 @@ from src.utils.validation import (
     validate_ratio,
     verify_file_signature,
 )
+from src.utils.file_utils import check_disk_space, safe_remove_file
 from src.utils.errors import (
     CliniScribeException,
     ValidationError,
@@ -242,6 +243,7 @@ async def process_pipeline_task(
 
 @router.post("/pipeline")
 async def pipeline(
+    request: Request,
     background_tasks: BackgroundTasks,
     file: UploadFile = File(..., description="Audio file to transcribe"),
     ratio: float = Query(0.15, ge=0.05, le=1.0, description="Summary length ratio (0.05-1.0)"),
@@ -279,8 +281,26 @@ async def pipeline(
         ratio = validate_ratio(ratio)
         subject = sanitize_subject(subject)
         
+        # Check Content-Length header first to reject oversized files early
+        max_bytes = MAX_FILE_SIZE_MB * 1024 * 1024
+        content_length = request.headers.get("Content-Length")
+        if content_length:
+            try:
+                file_size = int(content_length)
+                if file_size > max_bytes:
+                    raise ValidationError(
+                        message=f"File too large ({file_size / 1024 / 1024:.1f}MB). Maximum size is {MAX_FILE_SIZE_MB}MB.",
+                        error_code=ErrorCode.FILE_TOO_LARGE,
+                        details={
+                            "size_mb": round(file_size / 1024 / 1024, 2),
+                            "max_mb": MAX_FILE_SIZE_MB
+                        }
+                    )
+            except ValueError:
+                logger.warning(f"Invalid Content-Length header: {content_length}")
+        
         # Create storage directory
-        date_dir = datetime.utcnow().strftime("%Y-%m-%d")
+        date_dir = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         storage_path = os.path.join(AUDIO_STORAGE_DIR, date_dir)
         os.makedirs(storage_path, exist_ok=True)
         
@@ -288,8 +308,17 @@ async def pipeline(
         raw_path = os.path.join(storage_path, f"{uuid.uuid4()}_{filename}")
         logger.debug(f"Saving uploaded file to: {raw_path}")
 
+        # Check disk space before starting upload
+        estimated_size = int(content_length) if content_length else max_bytes
+        has_space, space_error = check_disk_space(storage_path, estimated_size)
+        if not has_space:
+            raise ValidationError(
+                message=space_error or "Insufficient disk space",
+                error_code=ErrorCode.INTERNAL_ERROR,
+                details={"required_mb": round(estimated_size / 1024 / 1024, 2)}
+            )
+
         # Stream file to disk with size validation
-        max_bytes = MAX_FILE_SIZE_MB * 1024 * 1024
         total_bytes = 0
         with open(raw_path, "wb") as f:
             while True:
@@ -313,8 +342,17 @@ async def pipeline(
         # Verify file signature
         file_ext = os.path.splitext(filename)[1].lower()
         if not verify_file_signature(raw_path, file_ext):
-            logger.warning(f"File signature mismatch for {filename}")
-            # Continue anyway, but log the warning
+            # Cleanup uploaded file before raising error
+            safe_remove_file(raw_path)
+            raise ValidationError(
+                message=f"File signature does not match extension '{file_ext}'. File may be corrupted or malicious.",
+                error_code=ErrorCode.INVALID_FILE_FORMAT,
+                details={
+                    "filename": filename,
+                    "extension": file_ext,
+                    "help": "Please ensure the file is a valid audio file matching its extension."
+                }
+            )
         
         # Determine enhancement setting
         use_deepfilter = DEEPFILTERNET_ENABLED if enhance is None else enhance
@@ -370,22 +408,14 @@ async def pipeline(
         
     except ValidationError:
         # Cleanup on validation error
-        if raw_path and os.path.exists(raw_path):
-            try:
-                os.remove(raw_path)
-            except Exception:
-                pass
+        safe_remove_file(raw_path)
         raise
         
     except Exception as e:
         logger.error(f"Pipeline request failed: {str(e)}")
         
         # Cleanup on failure
-        if raw_path and os.path.exists(raw_path):
-            try:
-                os.remove(raw_path)
-            except Exception:
-                pass
+        safe_remove_file(raw_path)
         
         # Re-raise CliniScribe exceptions
         if isinstance(e, (ValidationError, ProcessingError, ServiceUnavailableError)):

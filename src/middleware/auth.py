@@ -23,10 +23,17 @@ else:
     DEV_KEY = os.getenv("CLINISCRIBE_DEV_KEY")
     if not DEV_KEY:
         DEV_KEY = secrets.token_urlsafe(32)
+        # Log that a key was generated but don't expose it in logs
         logger.warning(
-            f"No API keys configured. Generated development key: {DEV_KEY}\n"
-            f"Set CLINISCRIBE_API_KEYS environment variable for production."
+            "No API keys configured. A development key has been generated.\n"
+            "⚠️  SECURITY: Set CLINISCRIBE_API_KEYS environment variable for production.\n"
+            "⚠️  For development, retrieve the generated key from the application startup output or set CLINISCRIBE_DEV_KEY."
         )
+        # Print to stderr (not logs) so it's visible but not in log files
+        import sys
+        print(f"\n{'='*60}", file=sys.stderr)
+        print(f"DEVELOPMENT API KEY: {DEV_KEY}", file=sys.stderr)
+        print(f"{'='*60}\n", file=sys.stderr)
     VALID_API_KEYS.add(DEV_KEY)
 
 # Authentication enabled/disabled

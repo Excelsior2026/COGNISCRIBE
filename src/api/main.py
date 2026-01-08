@@ -5,6 +5,7 @@ from fastapi.responses import JSONResponse
 from src.api.routers.pipeline import router as pipeline_router
 from src.api.routers.healthcheck import router as health_router
 from src.api.routers.transcribe_chunk import router as transcribe_router
+from src.api.routers.stats import router as stats_router
 from src.api.services.cleanup import cleanup_old_audio
 from src.api.services.task_manager import task_manager
 from src.middleware.auth import authenticate_request
@@ -73,10 +74,17 @@ async def global_exception_handler(request: Request, exc: Exception):
 @app.middleware("http")
 async def security_middleware(request: Request, call_next):
     """Apply authentication and rate limiting to requests."""
+    from src.utils.request_id import get_or_create_request_id
+    
+    # Set request ID for tracking
+    request_id = get_or_create_request_id(request)
+    request.state.request_id = request_id
+    
     try:
         # Skip middleware for health check
         if request.url.path in ["/health", "/api/health"]:
             response = await call_next(request)
+            response.headers["X-Request-ID"] = request_id
             return response
         
         # Apply rate limiting
@@ -87,6 +95,9 @@ async def security_middleware(request: Request, call_next):
         
         # Process request
         response = await call_next(request)
+        
+        # Add request ID to response
+        response.headers["X-Request-ID"] = request_id
         
         # Add rate limit headers if available
         if hasattr(request.state, 'rate_limit_limit'):
@@ -105,6 +116,7 @@ async def security_middleware(request: Request, call_next):
 app.include_router(health_router, prefix="/api", tags=["Health"])
 app.include_router(pipeline_router, prefix="/api", tags=["Pipeline"])
 app.include_router(transcribe_router, prefix="/api", tags=["Transcription"])
+app.include_router(stats_router, prefix="/api", tags=["Statistics"])
 
 
 # Background cleanup tasks
@@ -140,6 +152,13 @@ async def run_rate_limit_cleanup():
 async def startup_event():
     """Initialize application on startup."""
     global cleanup_task, rate_limit_cleanup_task, task_cleanup_task
+    
+    # Run startup validation
+    from src.utils.startup_validation import validate_on_startup
+    if not validate_on_startup():
+        logger.error("Startup validation failed. Please fix the errors above.")
+        import sys
+        sys.exit(1)
     
     logger.info(f"Starting {API_TITLE} v{API_VERSION}")
     logger.info(f"CORS origins: {CORS_ALLOW_ORIGINS}")

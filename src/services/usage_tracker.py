@@ -1,7 +1,7 @@
 """Track usage statistics for analytics and billing."""
 from src.database.config import SessionLocal
 from src.database.models import UsageStatistics
-from datetime import datetime
+from datetime import datetime, timezone
 from uuid import uuid4
 
 class UsageTracker:
@@ -12,7 +12,7 @@ class UsageTracker:
     
     def get_or_create_monthly_stats(self, user_id: str) -> UsageStatistics:
         """Get or create usage stats for current month."""
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         month = f"{now.year:04d}-{now.month:02d}"
         
         stats = self.db.query(UsageStatistics).filter(
@@ -39,7 +39,7 @@ class UsageTracker:
         stats.total_bytes_processed += bytes_processed
         stats.total_processing_seconds += processing_seconds
         stats.successful_jobs += 1
-        stats.updated_at = datetime.utcnow()
+        stats.updated_at = datetime.now(timezone.utc)
         
         self.db.commit()
         return True
@@ -49,14 +49,14 @@ class UsageTracker:
         stats = self.get_or_create_monthly_stats(user_id)
         
         stats.failed_jobs += 1
-        stats.updated_at = datetime.utcnow()
+        stats.updated_at = datetime.now(timezone.utc)
         
         self.db.commit()
         return True
     
     def get_user_stats(self, user_id: str) -> dict:
         """Get current month statistics for user."""
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         month = f"{now.year:04d}-{now.month:02d}"
         
         stats = self.db.query(UsageStatistics).filter(

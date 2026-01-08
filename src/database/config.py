@@ -6,10 +6,12 @@ import os
 from typing import Generator
 
 # Database URL configuration
-DATABASE_URL = os.getenv(
-    "DATABASE_URL",
-    "postgresql://cogniscribe:cogniscribe@localhost:5432/cogniscribe"
-)
+DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL:
+    raise ValueError(
+        "DATABASE_URL environment variable is required. "
+        "Set it to your database connection string (e.g., postgresql://user:password@host:port/database)"
+    )
 
 # SQLAlchemy engine configuration
 def get_engine():

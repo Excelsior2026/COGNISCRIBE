@@ -2,7 +2,8 @@
 from src.cache.redis_config import get_redis
 from src.database.config import SessionLocal
 from src.database.models import TranscriptionJob
-from datetime import datetime
+from src.database.transactions import db_transaction
+from datetime import datetime, timezone
 from uuid import uuid4
 import json
 
@@ -25,27 +26,27 @@ class TaskManager:
             "file_path": file_path,
             "ratio": str(ratio),
             "status": "pending",
-            "created_at": datetime.utcnow().isoformat(),
-            "updated_at": datetime.utcnow().isoformat(),
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
             "progress": "0"
         }
         
         # Store in Redis (24 hour TTL)
         self.redis.set_task(task_id, task_data, ttl=86400)
         
-        # Store in database
-        db_task = TranscriptionJob(
-            id=task_id,
-            user_id=user_id,
-            filename=filename,
-            original_filename=filename,
-            file_size_bytes=file_size_bytes,
-            file_path=file_path,
-            summary_ratio=ratio,
-            status="pending"
-        )
-        self.db.add(db_task)
-        self.db.commit()
+        # Store in database with transaction management
+        with db_transaction() as db:
+            db_task = TranscriptionJob(
+                id=task_id,
+                user_id=user_id,
+                filename=filename,
+                original_filename=filename,
+                file_size_bytes=file_size_bytes,
+                file_path=file_path,
+                summary_ratio=ratio,
+                status="pending"
+            )
+            db.add(db_task)
         
         return task_id
     
@@ -76,29 +77,29 @@ class TaskManager:
         # Update Redis
         self.redis.update_task(task_id, data)
         
-        # Update database
-        db_task = self.db.query(TranscriptionJob).filter(TranscriptionJob.id == task_id).first()
-        if db_task:
-            if "status" in data:
-                db_task.status = data["status"]
-            if "transcript_text" in data:
-                db_task.transcript_text = data["transcript_text"]
-            if "summary_text" in data:
-                db_task.summary_text = data["summary_text"]
-            if "progress" in data:
-                pass  # Progress is Redis-only
-            
-            db_task.updated_at = datetime.utcnow()
-            self.db.commit()
-            return True
-        return False
+        # Update database with transaction management
+        with db_transaction() as db:
+            db_task = db.query(TranscriptionJob).filter(TranscriptionJob.id == task_id).first()
+            if db_task:
+                if "status" in data:
+                    db_task.status = data["status"]
+                if "transcript_text" in data:
+                    db_task.transcript_text = data["transcript_text"]
+                if "summary_text" in data:
+                    db_task.summary_text = data["summary_text"]
+                if "progress" in data:
+                    pass  # Progress is Redis-only
+                
+                db_task.updated_at = datetime.now(timezone.utc)
+                return True
+            return False
     
     def set_progress(self, task_id: str, progress: str) -> bool:
         """Update task progress (Redis only, fast)."""
         task = self.redis.get_task(task_id)
         if task:
             task["progress"] = progress
-            task["updated_at"] = datetime.utcnow().isoformat()
+            task["updated_at"] = datetime.now(timezone.utc).isoformat()
             self.redis.update_task(task_id, task)
             return True
         return False
@@ -111,23 +112,23 @@ class TaskManager:
             "summary_text": summary,
             "duration": str(duration),
             "progress": "100",
-            "completed_at": datetime.utcnow().isoformat()
+            "completed_at": datetime.now(timezone.utc).isoformat()
         }
         
         # Update Redis
         self.redis.update_task(task_id, data)
         
-        # Update database
-        db_task = self.db.query(TranscriptionJob).filter(TranscriptionJob.id == task_id).first()
-        if db_task:
-            db_task.status = "completed"
-            db_task.transcript_text = transcript
-            db_task.summary_text = summary
-            db_task.transcript_duration = duration
-            db_task.processing_completed_at = datetime.utcnow()
-            self.db.commit()
-            return True
-        return False
+        # Update database with transaction management
+        with db_transaction() as db:
+            db_task = db.query(TranscriptionJob).filter(TranscriptionJob.id == task_id).first()
+            if db_task:
+                db_task.status = "completed"
+                db_task.transcript_text = transcript
+                db_task.summary_text = summary
+                db_task.transcript_duration = duration
+                db_task.processing_completed_at = datetime.now(timezone.utc)
+                return True
+            return False
     
     def fail_task(self, task_id: str, error_message: str) -> bool:
         """Mark task as failed."""
@@ -135,32 +136,33 @@ class TaskManager:
             "status": "failed",
             "error": error_message,
             "progress": "0",
-            "failed_at": datetime.utcnow().isoformat()
+            "failed_at": datetime.now(timezone.utc).isoformat()
         }
         
         # Update Redis
         self.redis.update_task(task_id, data)
         
-        # Update database
-        db_task = self.db.query(TranscriptionJob).filter(TranscriptionJob.id == task_id).first()
-        if db_task:
-            db_task.status = "failed"
-            db_task.error_message = error_message
-            db_task.processing_completed_at = datetime.utcnow()
-            self.db.commit()
-            return True
-        return False
+        # Update database with transaction management
+        with db_transaction() as db:
+            db_task = db.query(TranscriptionJob).filter(TranscriptionJob.id == task_id).first()
+            if db_task:
+                db_task.status = "failed"
+                db_task.error_message = error_message
+                db_task.processing_completed_at = datetime.now(timezone.utc)
+                return True
+            return False
     
     def delete_task(self, task_id: str) -> bool:
         """Delete task from Redis and database."""
         self.redis.delete_task(task_id)
         
-        db_task = self.db.query(TranscriptionJob).filter(TranscriptionJob.id == task_id).first()
-        if db_task:
-            self.db.delete(db_task)
-            self.db.commit()
-            return True
-        return False
+        # Delete from database with transaction management
+        with db_transaction() as db:
+            db_task = db.query(TranscriptionJob).filter(TranscriptionJob.id == task_id).first()
+            if db_task:
+                db.delete(db_task)
+                return True
+            return False
     
     def close(self):
         """Close database connection."""

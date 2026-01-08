@@ -2,7 +2,7 @@
 from src.database.config import SessionLocal
 from src.database.models import AuditLog
 from uuid import uuid4
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 class AuditLogger:
@@ -37,7 +37,7 @@ class AuditLogger:
             status=status,
             details=details,
             error_message=error_message,
-            created_at=datetime.utcnow()
+            created_at=datetime.now(timezone.utc)
         )
         
         self.db.add(audit_log)

@@ -1,7 +1,8 @@
 """Background task manager for async audio processing."""
 import asyncio
+import os
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Dict, Optional, Any
 from dataclasses import dataclass, field
@@ -34,7 +35,7 @@ class TaskProgress:
     stage: ProcessingStage
     percent: int = 0
     message: str = ""
-    updated_at: datetime = field(default_factory=datetime.utcnow)
+    updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 @dataclass
@@ -43,7 +44,7 @@ class Task:
     task_id: str
     status: TaskStatus
     progress: TaskProgress
-    created_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     completed_at: Optional[datetime] = None
     result: Optional[Dict[str, Any]] = None
     error: Optional[str] = None
@@ -57,6 +58,7 @@ class TaskManager:
         self.tasks: Dict[str, Task] = {}
         self._cleanup_interval = 3600  # Clean up old tasks every hour
         self._task_retention = 86400  # Keep tasks for 24 hours
+        self._max_tasks = int(os.getenv("COGNISCRIBE_MAX_TASKS", "10000"))  # Maximum tasks in memory
         self._cleanup_task: Optional[asyncio.Task] = None
     
     def create_task(self) -> str:
@@ -112,7 +114,7 @@ class TaskManager:
             return
         
         task.status = TaskStatus.COMPLETED
-        task.completed_at = datetime.utcnow()
+        task.completed_at = datetime.now(timezone.utc)
         task.result = result
         task.progress = TaskProgress(
             stage=ProcessingStage.COMPLETED,
@@ -134,7 +136,7 @@ class TaskManager:
             return
         
         task.status = TaskStatus.FAILED
-        task.completed_at = datetime.utcnow()
+        task.completed_at = datetime.now(timezone.utc)
         task.error = error
         task.error_code = error_code
         logger.error(f"Task {task_id} failed: {error}")
@@ -149,23 +151,47 @@ class TaskManager:
             return False
         
         task.status = TaskStatus.CANCELLED
-        task.completed_at = datetime.utcnow()
+        task.completed_at = datetime.now(timezone.utc)
         logger.info(f"Task {task_id} cancelled")
         return True
     
     def cleanup_old_tasks(self) -> int:
-        """Remove tasks older than retention period."""
-        cutoff = datetime.utcnow().timestamp() - self._task_retention
+        """Remove tasks older than retention period.
+        
+        Also removes failed/cancelled tasks more aggressively to prevent memory bloat.
+        """
+        cutoff = datetime.now(timezone.utc).timestamp() - self._task_retention
+        failed_cutoff = datetime.now(timezone.utc).timestamp() - (self._task_retention / 4)  # Keep failed tasks for 6 hours
+        
         removed = 0
         
         for task_id in list(self.tasks.keys()):
             task = self.tasks[task_id]
-            if task.created_at.timestamp() < cutoff:
+            task_age = task.created_at.timestamp()
+            
+            # Remove old tasks
+            if task_age < cutoff:
+                del self.tasks[task_id]
+                removed += 1
+            # Remove failed/cancelled tasks more aggressively
+            elif task.status in [TaskStatus.FAILED, TaskStatus.CANCELLED] and task_age < failed_cutoff:
                 del self.tasks[task_id]
                 removed += 1
         
+        # If still over limit, remove oldest completed tasks
+        if len(self.tasks) > self._max_tasks:
+            sorted_tasks = sorted(
+                self.tasks.items(),
+                key=lambda x: x[1].created_at.timestamp()
+            )
+            excess = len(self.tasks) - self._max_tasks
+            for task_id, _ in sorted_tasks[:excess]:
+                if self.tasks[task_id].status == TaskStatus.COMPLETED:
+                    del self.tasks[task_id]
+                    removed += 1
+        
         if removed > 0:
-            logger.info(f"Cleaned up {removed} old tasks")
+            logger.info(f"Cleaned up {removed} old tasks (remaining: {len(self.tasks)})")
         
         return removed
     
