@@ -23,6 +23,7 @@ from src.utils.validation import (
     verify_file_signature,
 )
 from src.utils.file_utils import check_disk_space, safe_remove_file
+from src.utils.file_deduplication import check_duplicate_file, cache_file_result
 from src.utils.errors import (
     CliniScribeException,
     ValidationError,
@@ -199,6 +200,10 @@ async def process_pipeline_task(
         }
         
         task_manager.complete_task(task_id, result)
+        
+        # Cache result for deduplication
+        cache_file_result(raw_path, task_id, result)
+        
         logger.info(f"Pipeline completed successfully for task {task_id}")
         
     except CliniScribeException as exc:
@@ -336,6 +341,24 @@ async def pipeline(
                 f.write(chunk)
 
         await file.close()
+        
+        # Check for duplicate file (optional optimization)
+        duplicate_result = check_duplicate_file(raw_path)
+        if duplicate_result:
+            logger.info(f"File already processed, returning cached result (task: {duplicate_result.get('task_id')})")
+            # Return cached result instead of processing
+            if async_mode:
+                return {
+                    "success": True,
+                    "task_id": duplicate_result.get("task_id"),
+                    "status": "completed",
+                    "message": "File was previously processed. Returning cached result.",
+                    "cached": True,
+                    "result": duplicate_result.get("result")
+                }
+            else:
+                # For sync mode, return the cached result directly
+                return duplicate_result.get("result", {})
         
         # Verify file signature
         file_ext = os.path.splitext(filename)[1].lower()
