@@ -135,11 +135,7 @@ async def process_pipeline_task(
                 # Cleanup files
                 if clean_path:
                     audio_preprocess.cleanup_temp_file(clean_path)
-                if raw_path and os.path.exists(raw_path):
-                    try:
-                        os.remove(raw_path)
-                    except Exception:
-                        pass
+                safe_remove_file(raw_path)
                 
                 # Fail task with PHI error
                 raise ValidationError(
@@ -211,6 +207,7 @@ async def process_pipeline_task(
         # Cleanup on failure
         if clean_path:
             audio_preprocess.cleanup_temp_file(clean_path)
+        safe_remove_file(raw_path)
 
         task_manager.fail_task(
             task_id,
@@ -219,11 +216,12 @@ async def process_pipeline_task(
         )
 
     except Exception as e:
-        logger.error(f"Pipeline failed for task {task_id}: {str(e)}")
+        logger.error(f"Pipeline failed for task {task_id}: {str(e)}", exc_info=True)
 
         # Cleanup on failure
         if clean_path:
             audio_preprocess.cleanup_temp_file(clean_path)
+        safe_remove_file(raw_path)
 
         # Determine error code
         error_code = ErrorCode.UNKNOWN_ERROR
