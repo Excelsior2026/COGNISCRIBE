@@ -85,8 +85,20 @@ def transcribe_audio(path: str) -> Dict[str, Any]:
         logger.info(f"Transcription completed: {len(segment_list)} segments, {len(result['text'])} characters")
         return result
         
+    except FileNotFoundError as e:
+        logger.error(f"Audio file not found: {str(e)}")
+        raise ProcessingError(
+            message=f"Audio file not found: {str(e)}",
+            error_code=ErrorCode.TRANSCRIPTION_FAILED,
+        ) from e
+    except RuntimeError as e:
+        logger.error(f"Whisper runtime error: {str(e)}")
+        raise ProcessingError(
+            message=f"Transcription runtime error: {str(e)}",
+            error_code=ErrorCode.TRANSCRIPTION_FAILED,
+        ) from e
     except Exception as e:
-        logger.error(f"Transcription failed: {str(e)}")
+        logger.error(f"Transcription failed: {str(e)}", exc_info=True)
         raise ProcessingError(
             message=f"Failed to transcribe audio: {str(e)}",
             error_code=ErrorCode.TRANSCRIPTION_FAILED,
