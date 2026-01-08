@@ -91,8 +91,26 @@ def preprocess_audio(path: str, use_deepfilter: Optional[bool] = None) -> Tuple[
         logger.info(f"Audio preprocessing completed: {out}")
         return out, {"enhanced": used_deepfilter, "enhancer": "deepfilternet" if used_deepfilter else None}
         
+    except FileNotFoundError as e:
+        logger.error(f"Audio file not found: {str(e)}")
+        raise ProcessingError(
+            message=f"Audio file not found: {str(e)}",
+            error_code=ErrorCode.PREPROCESSING_FAILED,
+        ) from e
+    except ValueError as e:
+        logger.error(f"Invalid audio file format: {str(e)}")
+        raise ProcessingError(
+            message=f"Invalid audio file format: {str(e)}",
+            error_code=ErrorCode.PREPROCESSING_FAILED,
+        ) from e
+    except OSError as e:
+        logger.error(f"File system error during preprocessing: {str(e)}")
+        raise ProcessingError(
+            message=f"File system error: {str(e)}",
+            error_code=ErrorCode.PREPROCESSING_FAILED,
+        ) from e
     except Exception as e:
-        logger.error(f"Audio preprocessing failed: {str(e)}")
+        logger.error(f"Audio preprocessing failed: {str(e)}", exc_info=True)
         # Clean up partial output if it exists
         if os.path.exists(out):
             os.remove(out)
