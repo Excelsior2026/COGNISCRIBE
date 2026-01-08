@@ -3,7 +3,7 @@ import uuid
 import asyncio
 from datetime import datetime, timezone
 from typing import Optional
-from fastapi import APIRouter, UploadFile, File, HTTPException, Query, BackgroundTasks
+from fastapi import APIRouter, UploadFile, File, HTTPException, Query, BackgroundTasks, Request
 from fastapi.responses import JSONResponse
 from src.api.services import audio_preprocess, transcriber, summarizer
 from src.api.services.task_manager import task_manager, ProcessingStage
