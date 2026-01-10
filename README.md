@@ -145,9 +145,9 @@ export OLLAMA_MODEL=llama3.1:70b
 
 ## 🔗 Reasoning Core (optional)
 
-- Install the dependency: `pip install reasoning-core` (or from the sibling repo: `pip install -e ../reasoning-core`).
-- Enable via env: `REASONING_CORE_ENABLED=true` (optional: `REASONING_CORE_DOMAIN=medical|business|meeting`, `REASONING_CORE_USE_LLM=true|false`).
-- Use the API flag: `POST /api/pipeline?include_reasoning=true` (optional `reasoning_domain=...`) to append `reasoning` results (concepts, relationships, reasoning chains, knowledge graph).
+- Runtime will auto-install when requested: set `REASONING_CORE_ENABLED=true` or call `POST /api/pipeline?include_reasoning=true` (optional `reasoning_domain=...`). If the package is missing, the backend will run `pip install reasoning-core==0.1.17` for you (may take time).
+- Manual install (faster on first run): `pip install reasoning-core==0.1.17` (or from the sibling repo: `pip install -e ../reasoning-core`).
+- Optional envs: `REASONING_CORE_DOMAIN=medical|business|meeting`, `REASONING_CORE_USE_LLM=true|false`.
 
 ## 🏗️ Docker Deployment
 

@@ -18,5 +18,4 @@ python-magic==0.4.27
 pydantic==2.5.0
 pydantic-settings==2.1.0
 
-# Reasoning/knowledge graph (optional but installed by default)
-reasoning-core==0.1.17
+# Reasoning/knowledge graph (optional; installed on demand)

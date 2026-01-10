@@ -1,4 +1,13 @@
-"""Optional integration with reasoning-core for concept and knowledge graph extraction."""
+"""Optional integration with reasoning-core for concept and knowledge graph extraction.
+
+If enabled but the package is missing, this module will attempt to install
+`reasoning-core` via pip on demand before proceeding.
+"""
+from __future__ import annotations
+
+import importlib
+import subprocess
+import sys
 from typing import Any, Dict, Optional
 
 from src.utils.logger import setup_logger
@@ -10,19 +19,13 @@ from src.utils.settings import (
 
 logger = setup_logger(__name__)
 
-try:
-    from reasoning_core import (
-        ReasoningAPI,
-        MedicalDomain,
-        BusinessDomain,
-        MeetingDomain,
-    )
-
-    _REASONING_CORE_AVAILABLE = True
-except ImportError:
-    ReasoningAPI = None  # type: ignore
-    MedicalDomain = BusinessDomain = MeetingDomain = None  # type: ignore
-    _REASONING_CORE_AVAILABLE = False
+ReasoningAPI = None
+MedicalDomain = None
+BusinessDomain = None
+MeetingDomain = None
+_REASONING_CORE_AVAILABLE = False
+_INSTALL_ATTEMPTED = False
+_INSTALL_ERROR: Optional[str] = None
 
 
 _DOMAIN_FACTORIES = {
@@ -32,7 +35,43 @@ _DOMAIN_FACTORIES = {
     "generic": lambda: None,
 }
 
-_api_cache: Dict[str, ReasoningAPI] = {}
+_api_cache: Dict[str, "ReasoningAPI"] = {}
+
+
+def _load_reasoning_core() -> bool:
+    """Attempt to import reasoning-core and populate globals."""
+    global ReasoningAPI, MedicalDomain, BusinessDomain, MeetingDomain, _REASONING_CORE_AVAILABLE
+    if _REASONING_CORE_AVAILABLE and ReasoningAPI:
+        return True
+    try:
+        module = importlib.import_module("reasoning_core")
+        ReasoningAPI = getattr(module, "ReasoningAPI", None)
+        MedicalDomain = getattr(module, "MedicalDomain", None)
+        BusinessDomain = getattr(module, "BusinessDomain", None)
+        MeetingDomain = getattr(module, "MeetingDomain", None)
+        _REASONING_CORE_AVAILABLE = ReasoningAPI is not None
+    except ImportError:
+        _REASONING_CORE_AVAILABLE = False
+    return _REASONING_CORE_AVAILABLE
+
+
+def _install_reasoning_core() -> None:
+    """Install reasoning-core via pip if not already installed."""
+    global _INSTALL_ATTEMPTED, _INSTALL_ERROR
+    if _INSTALL_ATTEMPTED:
+        return
+    _INSTALL_ATTEMPTED = True
+    try:
+        logger.info("Reasoning Core not found; attempting install via pip...")
+        subprocess.check_call(
+            [sys.executable, "-m", "pip", "install", "reasoning-core==0.1.17"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        logger.info("Reasoning Core installed successfully")
+    except Exception as exc:  # pragma: no cover - installation side effect
+        _INSTALL_ERROR = str(exc)
+        logger.error("Reasoning Core installation failed: %s", exc)
 
 
 def _normalize_domain_name(domain: Optional[str]) -> str:
@@ -57,6 +96,12 @@ def _resolve_domain(domain: Optional[str]):
 def _get_api(domain: Optional[str]) -> ReasoningAPI:
     """Get or create a cached ReasoningAPI instance for a domain."""
     domain_key = _normalize_domain_name(domain)
+    if domain_key not in _api_cache:
+        if not _load_reasoning_core():
+            _install_reasoning_core()
+        if not _load_reasoning_core():
+            raise ImportError("reasoning-core is not available")
+
     if domain_key not in _api_cache:
         _api_cache[domain_key] = ReasoningAPI(
             domain=_resolve_domain(domain),
@@ -85,8 +130,10 @@ def analyze_text(text: str, domain: Optional[str] = None, enabled: Optional[bool
         return response
 
     if not response["available"]:
-        response["error"] = "reasoning-core package not installed"
-        return response
+        _install_reasoning_core()
+        if not _load_reasoning_core():
+            response["error"] = _INSTALL_ERROR or "reasoning-core package not installed"
+            return response
 
     try:
         api = _get_api(domain)
