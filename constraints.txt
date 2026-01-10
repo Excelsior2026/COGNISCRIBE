@@ -1,2 +1,4 @@
 cython<3.0
-numpy<2.4
+# Keep in sync with deepfilternet requirements
+numpy<2.0
+packaging<24.0
