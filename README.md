@@ -43,6 +43,7 @@ cd CogniScribe
 python3.11 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt -c constraints.txt
+# reasoning-core installs as part of the default requirements for knowledge graph extraction
 ```
 
 3. **Install and start Ollama**
