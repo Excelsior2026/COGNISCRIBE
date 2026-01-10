@@ -19,4 +19,4 @@ pydantic==2.5.0
 pydantic-settings==2.1.0
 
 # Reasoning/knowledge graph (optional but installed by default)
-reasoning-core==0.1.0
+reasoning-core==0.1.17
