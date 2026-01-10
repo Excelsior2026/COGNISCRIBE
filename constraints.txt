@@ -2,3 +2,4 @@ cython<3.0
 # Keep in sync with deepfilternet requirements
 numpy<2.0
 packaging<24.0
+pytz==2023.3.post1
