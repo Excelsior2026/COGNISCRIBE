@@ -93,3 +93,17 @@ API_DESCRIPTION = (
     "Educational use only. Do not upload live clinical data or PHI. "
     "Not for diagnosis, treatment, or clinical decision-making."
 )
+
+# Reasoning Core (optional)
+REASONING_CORE_ENABLED = os.environ.get("REASONING_CORE_ENABLED", "false").lower() in (
+    "true",
+    "1",
+    "yes",
+)
+REASONING_CORE_DOMAIN = os.environ.get("REASONING_CORE_DOMAIN", "medical")
+REASONING_CORE_USE_LLM = os.environ.get("REASONING_CORE_USE_LLM", "true").lower() in (
+    "true",
+    "1",
+    "yes",
+    "auto",
+)

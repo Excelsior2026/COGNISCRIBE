@@ -25,6 +25,7 @@ class ProcessingStage(str, Enum):
     PREPROCESSING = "preprocessing"
     TRANSCRIBING = "transcribing"
     SUMMARIZING = "summarizing"
+    REASONING = "reasoning"
     COMPLETED = "completed"
 
 

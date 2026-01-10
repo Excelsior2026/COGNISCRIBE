@@ -6,12 +6,15 @@ from typing import Optional
 from fastapi import APIRouter, UploadFile, File, HTTPException, Query, BackgroundTasks
 from fastapi.responses import JSONResponse
 from src.api.services import audio_preprocess, transcriber, summarizer
+from src.api.services import reasoning
 from src.api.services.task_manager import task_manager, ProcessingStage
 from src.utils.settings import (
     AUDIO_STORAGE_DIR,
     MAX_FILE_SIZE_MB,
     ALLOWED_AUDIO_FORMATS,
     DEEPFILTERNET_ENABLED,
+    REASONING_CORE_ENABLED,
+    REASONING_CORE_DOMAIN,
 )
 from src.utils.validation import (
     sanitize_filename,
@@ -62,7 +65,9 @@ async def process_pipeline_task(
     filename: str,
     ratio: float,
     subject: Optional[str],
-    use_deepfilter: bool
+    use_deepfilter: bool,
+    include_reasoning: bool,
+    reasoning_domain: Optional[str],
 ) -> None:
     """Process audio pipeline in background.
     
@@ -119,6 +124,21 @@ async def process_pipeline_task(
             subject=subject
         )
         summary_sections = summarizer.parse_summary_sections(summary_text)
+
+        reasoning_result = None
+        if include_reasoning:
+            task_manager.update_progress(
+                task_id,
+                ProcessingStage.REASONING,
+                90,
+                "Extracting concepts and relationships"
+            )
+            reasoning_result = await asyncio.to_thread(
+                reasoning.analyze_text,
+                transcript["text"],
+                reasoning_domain,
+                include_reasoning,
+            )
         
         # Cleanup temporary processed file
         if clean_path:
@@ -131,6 +151,7 @@ async def process_pipeline_task(
             "transcript": transcript,
             "summary": summary_sections,
             "summary_text": summary_text,
+            "reasoning": reasoning_result,
             "metadata": {
                 "filename": filename,
                 "duration": transcript["duration"],
@@ -191,6 +212,14 @@ async def pipeline(
     enhance: Optional[bool] = Query(
         None,
         description="Enable DeepFilterNet enhancement if available (defaults to server setting).",
+    ),
+    include_reasoning: bool = Query(
+        REASONING_CORE_ENABLED,
+        description="Also run reasoning-core to extract concepts, relationships, and knowledge graph.",
+    ),
+    reasoning_domain: Optional[str] = Query(
+        None,
+        description="Optional reasoning-core domain (medical, business, meeting, generic).",
     ),
     async_mode: bool = Query(
         True,
@@ -270,7 +299,9 @@ async def pipeline(
                 filename,
                 ratio,
                 subject,
-                use_deepfilter
+                use_deepfilter,
+                include_reasoning,
+                reasoning_domain or REASONING_CORE_DOMAIN,
             )
             
             return {
@@ -289,7 +320,9 @@ async def pipeline(
                 filename,
                 ratio,
                 subject,
-                use_deepfilter
+                use_deepfilter,
+                include_reasoning,
+                reasoning_domain or REASONING_CORE_DOMAIN,
             )
             
             task = task_manager.get_task(task_id)
